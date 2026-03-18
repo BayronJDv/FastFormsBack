@@ -1,5 +1,36 @@
+# Variables de entorno — nunca subir credenciales
+.env
+.env.*
+
+# Entorno virtual
 venv/
-*.pyc
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
 *.pyo
 *.pyd
-__pycache__/
+.Python
+
+# Pytest
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# IDEs
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Distribución / build
+dist/
+build/
+*.egg-info/
