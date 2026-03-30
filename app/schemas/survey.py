@@ -3,7 +3,7 @@ from typing import List, Optional
 from enum import Enum
 from datetime import datetime
 
-from app.schemas.question import QuestionCreate, QuestionResponse
+from schemas.question import QuestionCreate, QuestionResponse
 
 
 class SurveyStatus(str, Enum):

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
-from app.core.config import supabase
+from core.config import supabase
 # ESTA ES LA LÍNEA QUE TE FALTA:
-from app.schemas.question import QuestionCreate 
+from schemas.question import QuestionCreate 
 
 router = APIRouter(prefix="/surveys/{survey_id}/questions", tags=["questions"])
 

@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException, Header, status
 from typing import Optional
 
-from app.schemas.survey import SurveyCreate, SurveyResponse
-from app.services import supabase_service
+from schemas.survey import SurveyCreate, SurveyResponse
+from services import supabase_service
 
 router = APIRouter(prefix="/surveys", tags=["Surveys"])
 

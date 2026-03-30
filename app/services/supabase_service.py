@@ -2,8 +2,8 @@ import random
 import string
 from typing import Optional
 
-from app.core.config import supabase
-from app.schemas.survey import SurveyCreate
+from core.config import supabase
+from schemas.survey import SurveyCreate
 
 
 def _generate_unique_code(length: int = 5) -> str:
