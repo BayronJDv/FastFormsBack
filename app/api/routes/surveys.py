@@ -1,13 +1,39 @@
-from fastapi import APIRouter, HTTPException, Header, status
+from fastapi import APIRouter, HTTPException, Header, status, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional
 
 from schemas.survey import SurveyCreate, SurveyResponse
 from services import supabase_service
+from core.config import supabase as supabase_client
 
 router = APIRouter(prefix="/surveys", tags=["Surveys"])
 
-# UUID de prueba válido para usar hasta que Auth (US-01) esté implementado
+security = HTTPBearer(auto_error=False)
+
+# UUID de prueba válido como fallback para desarrollo sin autenticación
 _TEST_CREATOR_ID = "832071cb-5f6a-4d2d-8c0c-901cd13e78ad"
+
+
+def _get_creator_id(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    x_creator_id: Optional[str] = Header(default=None),
+) -> str:
+    """
+    Extrae el user_id del token JWT de Supabase Auth.
+    Si no hay token, usa x-creator-id o el UUID de prueba como fallback.
+    """
+    if credentials:
+        try:
+            user_response = supabase_client.auth.get_user(credentials.credentials)
+            return user_response.user.id
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token inválido o expirado.",
+            )
+
+    return x_creator_id or _TEST_CREATOR_ID
+
 
 # Endpoint para crear una encuesta con sus preguntas
 @router.post(
@@ -18,7 +44,7 @@ _TEST_CREATOR_ID = "832071cb-5f6a-4d2d-8c0c-901cd13e78ad"
 )
 def create_survey(
     payload: SurveyCreate,
-    x_creator_id: Optional[str] = Header(default=None),
+    creator_id: str = Depends(_get_creator_id),
 ):
     """
     Recibe una encuesta con sus preguntas, la valida y la guarda en Supabase.
@@ -31,12 +57,10 @@ def create_survey(
     - Preguntas de tipo `open` o `yes_no` no deben incluir opciones.
     - No puede haber dos preguntas con la misma posición.
 
-    **Nota:** El `creator_id` se obtiene del header `x-creator-id`.
-    Será reemplazado por el token de Supabase Auth en US-01.
+    **Autenticación:** Envía el token de Supabase Auth en el header
+    `Authorization: Bearer <token>`. Si no se envía, se usa `x-creator-id`
+    como fallback para desarrollo.
     """
-
-    # TODO: reemplazar con el ID real del usuario autenticado (US-01)
-    creator_id = x_creator_id or _TEST_CREATOR_ID
 
     try:
         survey = supabase_service.create_survey(payload, creator_id)
