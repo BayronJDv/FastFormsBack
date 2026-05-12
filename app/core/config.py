@@ -6,17 +6,21 @@ load_dotenv()
 
 class Settings:
     PROJECT_NAME: str = "Fast Forms API"
-    
-    # Intentamos leer las variables
-    URL: str = os.getenv("SUPABASE_URL")
-    KEY: str = os.getenv("SUPABASE_KEY")
 
     def __init__(self):
-        # Validación crítica: Si no existen, el servidor no debe ni arrancar
+        self.URL: str = os.getenv("SUPABASE_URL", "")
+        self.KEY: str = os.getenv("SUPABASE_KEY", "")
+
         if not self.URL or not self.KEY:
             raise RuntimeError(
                 "❌ ERROR: No se encontraron SUPABASE_URL o SUPABASE_KEY en el .env. "
                 "Revisa el archivo .env o las variables de entorno."
+            )
+
+        if not self.URL.startswith("https://"):
+            raise RuntimeError(
+                "❌ ERROR: SUPABASE_URL debe comenzar con 'https://'. "
+                f"Valor actual: '{self.URL}'"
             )
 
 settings = Settings()
