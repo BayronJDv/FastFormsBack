@@ -1,8 +1,14 @@
+import sys
+from pathlib import Path
+
+# Asegurar que el directorio app/ esté en el path de Python
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routes import surveys, questions, responses
-
+from api.routes import surveys, questions
+ 
 app = FastAPI(
     title="FastForms API",
     description="Backend para la creación y distribución de encuestas.",

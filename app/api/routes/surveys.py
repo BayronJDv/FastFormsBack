@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Header, status
-from typing import List, Optional
+from typing import Optional
+from httpx import ConnectError
 
 from schemas.survey import SurveyCreate, SurveyResponse
 from services import supabase_service
@@ -36,6 +37,11 @@ def create_survey(
 
     try:
         survey = supabase_service.create_survey(payload, creator_id)
+    except ConnectError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No se pudo conectar con la base de datos. Verifica la configuración de SUPABASE_URL.",
+        )
     except RuntimeError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
