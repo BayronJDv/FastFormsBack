@@ -1,5 +1,31 @@
 # Changelog
 
+## Sprint 3 — Análisis y Cierre
+
+### US-10 · Resultados: Visualización Core
+- Nuevo endpoint `GET /api/v1/surveys/{id}/results` que agrega las respuestas:
+  porcentajes por opción para preguntas `multiple_choice` / `yes_no` y lista de
+  textos para preguntas `open`. Solo el creador autenticado puede consultarlo
+  (403 en caso contrario, 404 si la encuesta no existe).
+- Nuevos schemas `OptionResult` / `QuestionResult` / `SurveyResults`.
+- Nuevos servicios `get_survey_results` y `_aggregate_choice` (lógica de
+  agregación) en `app/services/supabase_service.py`.
+- Tests en `tests/unit/test_results.py` (agregación + endpoint).
+
+### US-09 · Gestión: Confirmación de Cierre
+- Nuevo endpoint `PATCH /api/v1/surveys/{id}/close` que cambia el estado a
+  `closed` y setea `closed_at` (acción irreversible). Valida que solo el creador
+  pueda cerrar su encuesta y que esté actualmente `active`.
+- Nuevo servicio `close_survey`.
+
+### US-06 · Acceso: Estado de Encuesta Cerrada
+- Sin cambios de backend: la validación de código (US-05) ya devuelve el estado
+  de la encuesta. El ajuste de copy vive en el frontend.
+
+### Refactor menor
+- `app/api/routes/surveys.py`: helper `_get_owned_survey_or_error` reutilizado
+  por los endpoints de publicar / cerrar / resultados.
+
 ## Sprint 2 — Publicación y Respuesta
 
 ### US-04 · Lógica: Publicación e Inmutabilidad

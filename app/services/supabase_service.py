@@ -1,9 +1,13 @@
 import random
 import string
+from datetime import datetime, timezone
 from typing import Optional
 
 from core.config import supabase
 from schemas.survey import SurveyCreate
+
+# Opciones implícitas para las preguntas Sí/No (no se guardan en la BD).
+YES_NO_OPTIONS = ["Sí", "No"]
 
 
 def _generate_unique_code(length: int = 5) -> str:
@@ -119,6 +123,24 @@ def set_survey_status(survey_id: int, new_status: str) -> dict:
     return result.data[0]
 
 
+def close_survey(survey_id: int) -> dict:
+    """
+    US-09 — Cierra una encuesta (acción irreversible): estado `closed` y
+    `closed_at` con la fecha actual. Retorna el registro actualizado.
+    """
+    result = (
+        supabase.table("surveys")
+        .update(
+            {"status": "closed", "closed_at": datetime.now(timezone.utc).isoformat()}
+        )
+        .eq("id", survey_id)
+        .execute()
+    )
+    if not result.data:
+        raise RuntimeError("No se pudo cerrar la encuesta.")
+    return result.data[0]
+
+
 def create_response(payload) -> dict:
     """
     US-08 — Persiste una respuesta (tabla responses) y sus answers asociadas.
@@ -163,3 +185,103 @@ def create_response(payload) -> dict:
 
     response["answers"] = answers_result.data
     return response
+
+
+def _aggregate_choice(answer_texts: list, declared_options: list) -> tuple:
+    """
+    Agrega respuestas de preguntas de opción (multiple_choice / yes_no).
+
+    Devuelve `(options, total)` donde `options` es una lista de dicts
+    `{option, count, percentage}`. Incluye primero las opciones declaradas
+    (aunque tengan 0 respuestas) y luego cualquier respuesta que no coincida
+    con las opciones declaradas.
+    """
+    total = len(answer_texts)
+    counts: dict = {}
+    for text in answer_texts:
+        counts[text] = counts.get(text, 0) + 1
+
+    def _pct(count: int) -> float:
+        return round(count / total * 100, 2) if total else 0.0
+
+    options = []
+    seen = set()
+    for option in declared_options or []:
+        count = counts.get(option, 0)
+        options.append({"option": option, "count": count, "percentage": _pct(count)})
+        seen.add(option)
+
+    for text, count in counts.items():
+        if text not in seen:
+            options.append({"option": text, "count": count, "percentage": _pct(count)})
+
+    return options, total
+
+
+def get_survey_results(survey: dict) -> dict:
+    """
+    US-10 — Agrega las respuestas de una encuesta.
+
+    - Preguntas `multiple_choice` / `yes_no`: porcentajes por opción.
+    - Preguntas `open`: lista de textos.
+    Recibe el registro de la encuesta ya cargado (la verificación de
+    propiedad se hace en la capa de API).
+    """
+    survey_id = survey["id"]
+
+    questions_result = (
+        supabase.table("questions")
+        .select("*")
+        .eq("survey_id", survey_id)
+        .order("position")
+        .execute()
+    )
+    questions = questions_result.data or []
+
+    responses_result = (
+        supabase.table("responses").select("id").eq("survey_id", survey_id).execute()
+    )
+    response_ids = [row["id"] for row in (responses_result.data or [])]
+
+    answers_by_question: dict = {}
+    if response_ids:
+        answers_result = (
+            supabase.table("answers")
+            .select("question_id, answer_text")
+            .in_("response_id", response_ids)
+            .execute()
+        )
+        for answer in (answers_result.data or []):
+            answers_by_question.setdefault(answer["question_id"], []).append(
+                answer["answer_text"]
+            )
+
+    question_results = []
+    for question in questions:
+        question_type = question["question_type"]
+        answer_texts = answers_by_question.get(question["id"], [])
+        entry = {
+            "question_id": question["id"],
+            "content": question["content"],
+            "question_type": question_type,
+            "total_answers": len(answer_texts),
+        }
+        if question_type == "open":
+            entry["texts"] = answer_texts
+        elif question_type == "yes_no":
+            options, _ = _aggregate_choice(answer_texts, YES_NO_OPTIONS)
+            entry["options"] = options
+        elif question_type == "multiple_choice":
+            options, _ = _aggregate_choice(answer_texts, question.get("options") or [])
+            entry["options"] = options
+        else:
+            entry["texts"] = answer_texts
+        question_results.append(entry)
+
+    return {
+        "survey_id": survey_id,
+        "title": survey["title"],
+        "status": survey["status"],
+        "total_responses": len(response_ids),
+        "questions": question_results,
+    }
