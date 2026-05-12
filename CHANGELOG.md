@@ -1,0 +1,61 @@
+# Changelog
+
+## Sprint 3 — Análisis y Cierre
+
+### US-10 · Resultados: Visualización Core
+- Nuevo endpoint `GET /api/v1/surveys/{id}/results` que agrega las respuestas:
+  porcentajes por opción para preguntas `multiple_choice` / `yes_no` y lista de
+  textos para preguntas `open`. Solo el creador autenticado puede consultarlo
+  (403 en caso contrario, 404 si la encuesta no existe).
+- Nuevos schemas `OptionResult` / `QuestionResult` / `SurveyResults`.
+- Nuevos servicios `get_survey_results` y `_aggregate_choice` (lógica de
+  agregación) en `app/services/supabase_service.py`.
+- Tests en `tests/unit/test_results.py` (agregación + endpoint).
+
+### US-09 · Gestión: Confirmación de Cierre
+- Nuevo endpoint `PATCH /api/v1/surveys/{id}/close` que cambia el estado a
+  `closed` y setea `closed_at` (acción irreversible). Valida que solo el creador
+  pueda cerrar su encuesta y que esté actualmente `active`.
+- Nuevo servicio `close_survey`.
+
+### US-06 · Acceso: Estado de Encuesta Cerrada
+- Sin cambios de backend: la validación de código (US-05) ya devuelve el estado
+  de la encuesta. El ajuste de copy vive en el frontend.
+
+### Refactor menor
+- `app/api/routes/surveys.py`: helper `_get_owned_survey_or_error` reutilizado
+  por los endpoints de publicar / cerrar / resultados.
+
+## Sprint 2 — Publicación y Respuesta
+
+### US-04 · Lógica: Publicación e Inmutabilidad
+- Nuevo guard reutilizable `assert_survey_in_status` en `app/api/deps.py` que
+  centraliza la regla de inmutabilidad (por defecto solo es editable el estado
+  `draft`, parametrizable para estados futuros).
+- Nuevo endpoint `PATCH /api/v1/surveys/{survey_id}/publish` que cambia el
+  estado de la encuesta a `active` ("Publicada"). Valida propiedad y que la
+  encuesta esté en borrador.
+- `POST /api/v1/surveys/{survey_id}/questions/` y los nuevos
+  `PUT`/`PATCH /api/v1/surveys/{survey_id}/questions/{question_id}` rechazan con
+  **403** cualquier modificación si la encuesta ya fue publicada. La protección
+  vive en la capa de API.
+- Nuevo schema `QuestionUpdate` para ediciones parciales de preguntas.
+
+### US-02 · Panel: Gestión de Estados
+- Nuevo endpoint `GET /api/v1/surveys/` que devuelve las encuestas del usuario
+  autenticado (header `x-creator-id` hasta que Auth/US-01 esté integrado) con su
+  estado actual (`draft` / `active` / `closed`).
+- Nuevo servicio `list_surveys_by_creator`.
+
+### US-08 · Recolección: Confirmación de Envío
+- Nuevos schemas `ResponseCreate` / `AnswerCreate` / `ResponseResult` en
+  `app/schemas/response.py`.
+- Nuevo endpoint `POST /api/v1/responses/` que persiste la respuesta y sus
+  `answers` de forma atómica (con rollback manual). Devuelve 404 si la encuesta
+  no existe y 409 si no está activa.
+- Nuevo servicio `create_response`.
+
+### Tests
+- `tests/unit/test_immutability.py` — cobertura de inmutabilidad y publicación.
+- `tests/unit/test_responses.py` — cobertura del endpoint y del servicio de
+  respuestas.

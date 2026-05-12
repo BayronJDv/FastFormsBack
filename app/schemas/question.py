@@ -49,6 +49,32 @@ class QuestionCreate(BaseModel):
         return self
 
 
+class QuestionUpdate(BaseModel):
+    """Campos editables de una pregunta (solo mientras la encuesta es borrador)."""
+
+    content: Optional[str] = None
+    question_type: Optional[QuestionType] = None
+    options: Optional[List[str]] = None
+    position: Optional[int] = None
+
+    @field_validator("content")
+    @classmethod
+    def content_no_vacio(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        if not v.strip():
+            raise ValueError("El enunciado de la pregunta no puede estar vacío.")
+        return v.strip()
+
+    @field_validator("options")
+    @classmethod
+    def opciones_no_vacias(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if v is not None:
+            if any(not opt or not opt.strip() for opt in v):
+                raise ValueError("Ninguna opción puede estar vacía.")
+        return v
+
+
 class QuestionResponse(BaseModel):
     id: int
     survey_id: int
