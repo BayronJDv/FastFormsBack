@@ -86,3 +86,80 @@ def get_survey_by_code(code: str) -> Optional[dict]:
         .execute()
     )
     return result.data[0] if result.data else None
+
+
+def get_survey(survey_id: int) -> Optional[dict]:
+    """Retorna la encuesta (sin preguntas) a partir de su id, o None si no existe."""
+    result = supabase.table("surveys").select("*").eq("id", survey_id).execute()
+    return result.data[0] if result.data else None
+
+
+def list_surveys_by_creator(creator_id: str) -> list:
+    """US-02 — Retorna todas las encuestas creadas por el usuario indicado."""
+    result = (
+        supabase.table("surveys")
+        .select("*")
+        .eq("creator_id", creator_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return result.data or []
+
+
+def set_survey_status(survey_id: int, new_status: str) -> dict:
+    """Cambia el estado de una encuesta y retorna el registro actualizado."""
+    result = (
+        supabase.table("surveys")
+        .update({"status": new_status})
+        .eq("id", survey_id)
+        .execute()
+    )
+    if not result.data:
+        raise RuntimeError("No se pudo actualizar el estado de la encuesta.")
+    return result.data[0]
+
+
+def create_response(payload) -> dict:
+    """
+    US-08 — Persiste una respuesta (tabla responses) y sus answers asociadas.
+
+    Operación atómica manual: insert response → insert answers (con rollback).
+    Lanza:
+      - LookupError si la encuesta no existe.
+      - ValueError si la encuesta no está activa.
+      - RuntimeError ante un fallo de la base de datos.
+    """
+    survey = get_survey(payload.survey_id)
+    if survey is None:
+        raise LookupError("La encuesta indicada no existe.")
+    if survey.get("status") != "active":
+        raise ValueError("La encuesta no está activa para recibir respuestas.")
+
+    response_result = (
+        supabase.table("responses").insert({"survey_id": payload.survey_id}).execute()
+    )
+    if not response_result.data:
+        raise RuntimeError("Error al guardar la respuesta en la base de datos.")
+
+    response = response_result.data[0]
+    response_id = response["id"]
+
+    answers_data = [
+        {
+            "response_id": response_id,
+            "question_id": answer.question_id,
+            "answer_text": answer.answer_text,
+        }
+        for answer in payload.answers
+    ]
+
+    answers_result = supabase.table("answers").insert(answers_data).execute()
+    if not answers_result.data:
+        # Rollback manual
+        supabase.table("responses").delete().eq("id", response_id).execute()
+        raise RuntimeError(
+            "Error al guardar las respuestas. La operación fue revertida."
+        )
+
+    response["answers"] = answers_result.data
+    return response
