@@ -1,20 +1,13 @@
-from fastapi import APIRouter, HTTPException, Header, status
+from fastapi import APIRouter, HTTPException, Depends, status
 from typing import List, Optional
 from httpx import ConnectError
 
 from schemas.survey import SurveyCreate, SurveyResponse
 from schemas.results import SurveyResults
 from services import supabase_service
+from api.deps import get_current_user_id
 
 router = APIRouter(prefix="/surveys", tags=["Surveys"])
-
-# UUID de prueba válido para usar hasta que Auth (US-01) esté implementado
-_TEST_CREATOR_ID = "832071cb-5f6a-4d2d-8c0c-901cd13e78ad"
-
-
-def _resolve_creator_id(x_creator_id: Optional[str]) -> str:
-    # TODO: reemplazar con el ID real del usuario autenticado (US-01)
-    return x_creator_id or _TEST_CREATOR_ID
 
 
 def _get_owned_survey_or_error(survey_id: int, creator_id: str) -> dict:
@@ -42,16 +35,11 @@ def _get_owned_survey_or_error(survey_id: int, creator_id: str) -> dict:
 )
 def create_survey(
     payload: SurveyCreate,
-    x_creator_id: Optional[str] = Header(default=None),
+    creator_id: str = Depends(get_current_user_id),
 ):
     """
     Recibe una encuesta con sus preguntas, la valida y la guarda en Supabase.
-
-    **Nota:** El `creator_id` se obtiene del header `x-creator-id`.
-    Será reemplazado por el token de Supabase Auth en US-01.
     """
-    creator_id = _resolve_creator_id(x_creator_id)
-
     try:
         survey = supabase_service.create_survey(payload, creator_id)
     except RuntimeError as e:
@@ -69,10 +57,8 @@ def create_survey(
     response_model=List[SurveyResponse],
     summary="Listar las encuestas del usuario autenticado",
 )
-def list_my_surveys(x_creator_id: Optional[str] = Header(default=None)):
+def list_my_surveys(creator_id: str = Depends(get_current_user_id)):
     """Devuelve las encuestas del creador autenticado con su estado actual."""
-    creator_id = _resolve_creator_id(x_creator_id)
-
     try:
         return supabase_service.list_surveys_by_creator(creator_id)
     except RuntimeError as e:
@@ -90,7 +76,7 @@ def list_my_surveys(x_creator_id: Optional[str] = Header(default=None)):
 )
 def publish_survey(
     survey_id: int,
-    x_creator_id: Optional[str] = Header(default=None),
+    creator_id: str = Depends(get_current_user_id),
 ):
     """
     Cambia el estado de la encuesta a `active` ("Publicada").
@@ -98,7 +84,6 @@ def publish_survey(
     Una vez publicada, sus preguntas quedan bloqueadas para edición
     (ver guard de inmutabilidad en `api/deps.py`).
     """
-    creator_id = _resolve_creator_id(x_creator_id)
     survey = _get_owned_survey_or_error(survey_id, creator_id)
 
     if survey.get("status") != "draft":
@@ -124,13 +109,12 @@ def publish_survey(
 )
 def close_survey(
     survey_id: int,
-    x_creator_id: Optional[str] = Header(default=None),
+    creator_id: str = Depends(get_current_user_id),
 ):
     """
     Cambia el estado de la encuesta a `closed`. A partir de ese momento la
     encuesta deja de aceptar respuestas. Solo el creador puede cerrarla.
     """
-    creator_id = _resolve_creator_id(x_creator_id)
     survey = _get_owned_survey_or_error(survey_id, creator_id)
 
     if survey.get("status") == "closed":
@@ -161,7 +145,7 @@ def close_survey(
 )
 def get_survey_results(
     survey_id: int,
-    x_creator_id: Optional[str] = Header(default=None),
+    creator_id: str = Depends(get_current_user_id),
 ):
     """
     Devuelve las métricas agregadas de la encuesta:
@@ -169,7 +153,6 @@ def get_survey_results(
     - lista de textos para preguntas `open`.
     Solo el creador autenticado puede consultarlos.
     """
-    creator_id = _resolve_creator_id(x_creator_id)
     survey = _get_owned_survey_or_error(survey_id, creator_id)
 
     try:
