@@ -1,4 +1,5 @@
 import sys
+import os
 from pathlib import Path
 
 # Asegurar que el directorio app/ esté en el path de Python
@@ -18,9 +19,11 @@ app = FastAPI(
 # ---------------------------------------------------------------
 # CORS — ajusta los orígenes cuando tengas el dominio del front
 # ---------------------------------------------------------------
+frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # TODO: agregar dominio de producción
+    allow_origins=frontend_url.split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
