@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Header, status
-from typing import Optional
+from typing import List, Optional
 from httpx import ConnectError
 
 from schemas.survey import SurveyCreate, SurveyResponse
