@@ -175,25 +175,6 @@ def get_survey_results(
         )
 
 
-# Exportar resultados a CSV
-@router.get(
-    "/{survey_id}/results/csv",
-    summary="Exportar resultados de una encuesta a CSV",
-)
-def export_survey_results_csv(
-    survey_id: int,
-    creator_id: str = Depends(get_current_user_id),
-):
-    """
-    Descarga un archivo CSV con todas las respuestas de la encuesta.
-    Cada fila representa una respuesta individual a una pregunta.
-    Ordenado por ID de respuesta y posición de la pregunta.
-    Solo el creador autenticado puede exportar.
-    """
-    _get_owned_survey_or_error(survey_id, creator_id)
-
-    try:
-        rows = supabase_service.get_survey_responses_raw(survey_id)
 # Obtener una encuesta por id (incluye sus preguntas) — para reabrir un borrador.
 @router.get(
     "/{survey_id}",
@@ -234,6 +215,32 @@ def update_draft(
     try:
         return supabase_service.update_draft(survey_id, payload)
     except RuntimeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+# Exportar resultados a CSV
+@router.get(
+    "/{survey_id}/results/csv",
+    summary="Exportar resultados de una encuesta a CSV",
+)
+def export_survey_results_csv(
+    survey_id: int,
+    creator_id: str = Depends(get_current_user_id),
+):
+    """
+    Descarga un archivo CSV con todas las respuestas de la encuesta.
+    Cada fila representa una respuesta individual a una pregunta.
+    Ordenado por ID de respuesta y posición de la pregunta.
+    Solo el creador autenticado puede exportar.
+    """
+    _get_owned_survey_or_error(survey_id, creator_id)
+
+    try:
+        rows = supabase_service.get_survey_responses_raw(survey_id)
+    except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
