@@ -26,7 +26,8 @@ def _get_owned_survey_or_error(survey_id: int, creator_id: str) -> dict:
     return survey
 
 
-# Endpoint para crear una encuesta con sus preguntas
+
+# Endpoint para crear una encuesta con sus preguntas (publicar)
 @router.post(
     "/",
     response_model=SurveyResponse,

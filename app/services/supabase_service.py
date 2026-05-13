@@ -11,21 +11,21 @@ YES_NO_OPTIONS = ["Sí", "No"]
 
 
 def _generate_unique_code(length: int = 5) -> str:
-    """Genera un código alfanumérico en mayúsculas (ej: A7X9K)."""
+    """Genera un codigo alfanumerico en mayusculas (ej: A7X9K)."""
     chars = string.ascii_uppercase + string.digits
     return "".join(random.choices(chars, k=length))
 
 
 def create_survey(payload: SurveyCreate, creator_id: str) -> dict:
     """
-    Inserta la encuesta y sus preguntas en Supabase dentro de una operación
-    atómica manual (insert survey → insert questions).
+    Inserta la encuesta y sus preguntas en Supabase dentro de una operacion
+    atomica manual (insert survey -> insert questions).
 
     Retorna el registro completo de la encuesta con sus preguntas.
-    Lanza una excepción si alguna operación falla.
+    Lanza una excepcion si alguna operacion falla.
     """
 
-    # 1. Generar código único (reintenta si ya existe)
+    # 1. Generar codigo unico (reintenta si ya existe)
     unique_code = _get_available_code()
 
     # 2. Insertar la encuesta
@@ -59,7 +59,7 @@ def create_survey(payload: SurveyCreate, creator_id: str) -> dict:
     questions_result = supabase.table("questions").insert(questions_data).execute()
 
     if not questions_result.data:
-        # Rollback manual: eliminar la encuesta recién creada
+        # Rollback manual: eliminar la encuesta recien creada
         supabase.table("surveys").delete().eq("id", survey_id).execute()
         raise RuntimeError("Error al guardar las preguntas. La encuesta fue revertida.")
 
@@ -68,7 +68,7 @@ def create_survey(payload: SurveyCreate, creator_id: str) -> dict:
 
 
 def _get_available_code(max_attempts: int = 10) -> str:
-    """Genera un código que no exista todavía en la tabla surveys."""
+    """Genera un codigo que no exista todavia en la tabla surveys."""
     for _ in range(max_attempts):
         code = _generate_unique_code()
         existing = (
@@ -77,12 +77,12 @@ def _get_available_code(max_attempts: int = 10) -> str:
         if not existing.data:
             return code
     raise RuntimeError(
-        "No se pudo generar un código único después de varios intentos."
+        "No se pudo generar un codigo unico despues de varios intentos."
     )
 
 
 def get_survey_by_code(code: str) -> Optional[dict]:
-    """Retorna la encuesta (con preguntas) a partir del código único."""
+    """Retorna la encuesta (con preguntas) a partir del codigo unico."""
     result = (
         supabase.table("surveys")
         .select("*, questions(*)")
