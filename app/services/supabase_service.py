@@ -6,7 +6,7 @@ from typing import Optional
 from core.config import supabase
 from schemas.survey import SurveyCreate
 
-# Opciones implícitas para las preguntas Sí/No (no se guardan en la BD).
+# Opciones implicitas para las preguntas Si/No (no se guardan en la BD).
 YES_NO_OPTIONS = ["Sí", "No"]
 
 
@@ -98,6 +98,20 @@ def get_survey(survey_id: int) -> Optional[dict]:
     return result.data[0] if result.data else None
 
 
+def get_survey_with_questions(survey_id: int) -> Optional[dict]:
+    """Retorna la encuesta (incluyendo sus preguntas) por id.
+
+    Lo usamos para reabrir un borrador en el editor del frontend.
+    """
+    result = (
+        supabase.table("surveys")
+        .select("*, questions(*)")
+        .eq("id", survey_id)
+        .execute()
+    )
+    return result.data[0] if result.data else None
+
+
 def list_surveys_by_creator(creator_id: str) -> list:
     """US-02 — Retorna todas las encuestas creadas por el usuario indicado."""
     result = (
@@ -125,7 +139,7 @@ def set_survey_status(survey_id: int, new_status: str) -> dict:
 
 def close_survey(survey_id: int) -> dict:
     """
-    US-09 — Cierra una encuesta (acción irreversible): estado `closed` y
+    US-09 — Cierra una encuesta (accion irreversible): estado `closed` y
     `closed_at` con la fecha actual. Retorna el registro actualizado.
     """
     result = (
@@ -141,21 +155,85 @@ def close_survey(survey_id: int) -> dict:
     return result.data[0]
 
 
+# ---------------------------------------------------------------------------
+# Borradores: guardado y edicion con contenido parcial.
+# ---------------------------------------------------------------------------
+
+def _replace_questions(survey_id: int, questions) -> list:
+    """Elimina y reinserta todas las preguntas asociadas a un borrador.
+
+    Snapshot atomico de lo que el usuario ve al momento de guardar; evita
+    arrastrar preguntas obsoletas eliminadas en el editor.
+    """
+    supabase.table("questions").delete().eq("survey_id", survey_id).execute()
+    if not questions:
+        return []
+    questions_data = [
+        {
+            "survey_id": survey_id,
+            "content": (q.content or "").strip(),
+            "question_type": q.question_type.value,
+            "options": q.options,
+            "position": q.position,
+        }
+        for q in questions
+    ]
+    result = supabase.table("questions").insert(questions_data).execute()
+    return result.data or []
+
+
+def create_draft(payload, creator_id: str) -> dict:
+    """Crea un borrador (status='draft') con sus preguntas, contenido parcial permitido."""
+    unique_code = _get_available_code()
+    survey_data = {
+        "creator_id": creator_id,
+        "title": payload.title or "(sin titulo)",
+        "status": "draft",
+        "unique_code": unique_code,
+    }
+    survey_result = supabase.table("surveys").insert(survey_data).execute()
+    if not survey_result.data:
+        raise RuntimeError("Error al guardar el borrador en la base de datos.")
+    survey = survey_result.data[0]
+    survey["questions"] = _replace_questions(survey["id"], payload.questions)
+    return survey
+
+
+def update_draft(survey_id: int, payload) -> dict:
+    """Actualiza un borrador existente y sustituye sus preguntas.
+
+    La validacion de propiedad y de estado (status == 'draft') se hace en la
+    capa de API antes de invocar esta funcion.
+    """
+    update_data = {"title": payload.title or "(sin titulo)"}
+    updated = (
+        supabase.table("surveys")
+        .update(update_data)
+        .eq("id", survey_id)
+        .execute()
+    )
+    if not updated.data:
+        raise RuntimeError("No se pudo actualizar el borrador.")
+    survey = updated.data[0]
+    survey["questions"] = _replace_questions(survey_id, payload.questions)
+    return survey
+
+
 def create_response(payload) -> dict:
     """
     US-08 — Persiste una respuesta (tabla responses) y sus answers asociadas.
 
-    Operación atómica manual: insert response → insert answers (con rollback).
+    Operacion atomica manual: insert response -> insert answers (con rollback).
     Lanza:
       - LookupError si la encuesta no existe.
-      - ValueError si la encuesta no está activa.
+      - ValueError si la encuesta no esta activa.
       - RuntimeError ante un fallo de la base de datos.
     """
     survey = get_survey(payload.survey_id)
     if survey is None:
         raise LookupError("La encuesta indicada no existe.")
     if survey.get("status") != "active":
-        raise ValueError("La encuesta no está activa para recibir respuestas.")
+        raise ValueError("La encuesta no esta activa para recibir respuestas.")
 
     response_result = (
         supabase.table("responses").insert({"survey_id": payload.survey_id}).execute()
@@ -180,7 +258,7 @@ def create_response(payload) -> dict:
         # Rollback manual
         supabase.table("responses").delete().eq("id", response_id).execute()
         raise RuntimeError(
-            "Error al guardar las respuestas. La operación fue revertida."
+            "Error al guardar las respuestas. La operacion fue revertida."
         )
 
     response["answers"] = answers_result.data
@@ -189,7 +267,7 @@ def create_response(payload) -> dict:
 
 def _aggregate_choice(answer_texts: list, declared_options: list) -> tuple:
     """
-    Agrega respuestas de preguntas de opción (multiple_choice / yes_no).
+    Agrega respuestas de preguntas de opcion (multiple_choice / yes_no).
 
     Devuelve `(options, total)` donde `options` es una lista de dicts
     `{option, count, percentage}`. Incluye primero las opciones declaradas
@@ -222,9 +300,9 @@ def get_survey_results(survey: dict) -> dict:
     """
     US-10 — Agrega las respuestas de una encuesta.
 
-    - Preguntas `multiple_choice` / `yes_no`: porcentajes por opción.
+    - Preguntas `multiple_choice` / `yes_no`: porcentajes por opcion.
     - Preguntas `open`: lista de textos.
-    Recibe el registro de la encuesta ya cargado (la verificación de
+    Recibe el registro de la encuesta ya cargado (la verificacion de
     propiedad se hace en la capa de API).
     """
     survey_id = survey["id"]
