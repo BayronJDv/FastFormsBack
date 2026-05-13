@@ -187,6 +187,59 @@ def create_response(payload) -> dict:
     return response
 
 
+def get_survey_responses_raw(survey_id: int) -> list:
+    """
+    Retorna todas las respuestas de una encuesta en formato fila para
+    exportación. Cada elemento del resultado es un dict con:
+      response_id, submitted_at, question_position, question_content,
+      question_type, answer_text.
+    Ordenado por response_id y luego por position de la pregunta.
+    """
+    questions_result = (
+        supabase.table("questions")
+        .select("id, content, question_type, position")
+        .eq("survey_id", survey_id)
+        .order("position")
+        .execute()
+    )
+    questions = {q["id"]: q for q in (questions_result.data or [])}
+
+    responses_result = (
+        supabase.table("responses")
+        .select("id, submitted_at")
+        .eq("survey_id", survey_id)
+        .order("id")
+        .execute()
+    )
+    responses_by_id = {r["id"]: r for r in (responses_result.data or [])}
+    response_ids = list(responses_by_id.keys())
+
+    rows = []
+    if response_ids:
+        answers_result = (
+            supabase.table("answers")
+            .select("response_id, question_id, answer_text")
+            .in_("response_id", response_ids)
+            .order("response_id")
+            .execute()
+        )
+        for answer in (answers_result.data or []):
+            response = responses_by_id.get(answer["response_id"])
+            question = questions.get(answer["question_id"])
+            if response and question:
+                rows.append({
+                    "response_id": answer["response_id"],
+                    "submitted_at": response["submitted_at"],
+                    "question_position": question["position"],
+                    "question_content": question["content"],
+                    "question_type": question["question_type"],
+                    "answer_text": answer["answer_text"],
+                })
+
+    rows.sort(key=lambda r: (r["response_id"], r["question_position"]))
+    return rows
+
+
 def _aggregate_choice(answer_texts: list, declared_options: list) -> tuple:
     """
     Agrega respuestas de preguntas de opción (multiple_choice / yes_no).
