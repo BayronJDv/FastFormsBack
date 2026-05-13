@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException, Depends, status
-from typing import List, Optional
-from httpx import ConnectError
+from typing import List
 
 from schemas.survey import SurveyCreate, SurveyResponse
+from schemas.draft import DraftPayload
 from schemas.results import SurveyResults
 from services import supabase_service
 from api.deps import get_current_user_id
@@ -26,7 +26,7 @@ def _get_owned_survey_or_error(survey_id: int, creator_id: str) -> dict:
     return survey
 
 
-# Endpoint para crear una encuesta con sus preguntas
+# Endpoint para crear una encuesta con sus preguntas (validacion estricta)
 @router.post(
     "/",
     response_model=SurveyResponse,
@@ -37,9 +37,7 @@ def create_survey(
     payload: SurveyCreate,
     creator_id: str = Depends(get_current_user_id),
 ):
-    """
-    Recibe una encuesta con sus preguntas, la valida y la guarda en Supabase.
-    """
+    """Recibe una encuesta con sus preguntas, la valida y la guarda en Supabase."""
     try:
         survey = supabase_service.create_survey(payload, creator_id)
     except RuntimeError as e:
@@ -47,8 +45,29 @@ def create_survey(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
         )
-
     return survey
+
+
+# Crear borrador con contenido parcial.
+# Importante: la ruta estatica `/draft` se declara ANTES de `/{survey_id}` para
+# que FastAPI no la confunda con un id dinamico.
+@router.post(
+    "/draft",
+    response_model=SurveyResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Crear un borrador (permite contenido parcial)",
+)
+def create_draft(
+    payload: DraftPayload,
+    creator_id: str = Depends(get_current_user_id),
+):
+    try:
+        return supabase_service.create_draft(payload, creator_id)
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
 
 
 # US-02 — Listado de encuestas del usuario autenticado
@@ -68,7 +87,7 @@ def list_my_surveys(creator_id: str = Depends(get_current_user_id)):
         )
 
 
-# US-04 — Publicación de una encuesta (draft -> active)
+# US-04 — Publicacion de una encuesta (draft -> active)
 @router.patch(
     "/{survey_id}/publish",
     response_model=SurveyResponse,
@@ -78,12 +97,7 @@ def publish_survey(
     survey_id: int,
     creator_id: str = Depends(get_current_user_id),
 ):
-    """
-    Cambia el estado de la encuesta a `active` ("Publicada").
-
-    Una vez publicada, sus preguntas quedan bloqueadas para edición
-    (ver guard de inmutabilidad en `api/deps.py`).
-    """
+    """Cambia el estado de la encuesta a `active` (Publicada)."""
     survey = _get_owned_survey_or_error(survey_id, creator_id)
 
     if survey.get("status") != "draft":
@@ -105,22 +119,19 @@ def publish_survey(
 @router.patch(
     "/{survey_id}/close",
     response_model=SurveyResponse,
-    summary="Cerrar una encuesta (acción irreversible)",
+    summary="Cerrar una encuesta (accion irreversible)",
 )
 def close_survey(
     survey_id: int,
     creator_id: str = Depends(get_current_user_id),
 ):
-    """
-    Cambia el estado de la encuesta a `closed`. A partir de ese momento la
-    encuesta deja de aceptar respuestas. Solo el creador puede cerrarla.
-    """
+    """Cambia el estado de la encuesta a `closed`. Solo el creador puede cerrarla."""
     survey = _get_owned_survey_or_error(survey_id, creator_id)
 
     if survey.get("status") == "closed":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="La encuesta ya está cerrada.",
+            detail="La encuesta ya esta cerrada.",
         )
     if survey.get("status") != "active":
         raise HTTPException(
@@ -147,16 +158,57 @@ def get_survey_results(
     survey_id: int,
     creator_id: str = Depends(get_current_user_id),
 ):
-    """
-    Devuelve las métricas agregadas de la encuesta:
-    - porcentajes por opción para preguntas `multiple_choice` y `yes_no`,
-    - lista de textos para preguntas `open`.
-    Solo el creador autenticado puede consultarlos.
-    """
+    """Devuelve las metricas agregadas de la encuesta."""
     survey = _get_owned_survey_or_error(survey_id, creator_id)
 
     try:
         return supabase_service.get_survey_results(survey)
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+# Obtener una encuesta por id (incluye sus preguntas) — para reabrir un borrador.
+@router.get(
+    "/{survey_id}",
+    response_model=SurveyResponse,
+    summary="Obtener una encuesta por id (incluye preguntas)",
+)
+def get_survey_by_id(
+    survey_id: int,
+    creator_id: str = Depends(get_current_user_id),
+):
+    _get_owned_survey_or_error(survey_id, creator_id)
+    survey = supabase_service.get_survey_with_questions(survey_id)
+    if survey is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Encuesta no encontrada.",
+        )
+    return survey
+
+
+# Actualizar un borrador existente (reemplaza preguntas).
+@router.put(
+    "/{survey_id}/draft",
+    response_model=SurveyResponse,
+    summary="Actualizar un borrador existente",
+)
+def update_draft(
+    survey_id: int,
+    payload: DraftPayload,
+    creator_id: str = Depends(get_current_user_id),
+):
+    survey = _get_owned_survey_or_error(survey_id, creator_id)
+    if survey.get("status") != "draft":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Solo se pueden editar encuestas en estado borrador.",
+        )
+    try:
+        return supabase_service.update_draft(survey_id, payload)
     except RuntimeError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
