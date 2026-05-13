@@ -9,10 +9,34 @@ recibe ``allowed_statuses`` para poder reutilizarse con otros estados futuros.
 
 from typing import Iterable, Optional
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException, status, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from core.config import supabase
 
 # Estados en los que una encuesta (y sus preguntas) puede editarse.
 EDITABLE_STATUSES = ("draft",)
+
+security = HTTPBearer()
+
+
+def get_current_user_id(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
+    """
+    Extrae y valida el token JWT (Bearer) del header Authorization.
+    Utiliza el cliente de Supabase para obtener el usuario autenticado
+    y devuelve su ID real (UUID).
+    """
+    token = credentials.credentials
+    try:
+        user_response = supabase.auth.get_user(token)
+        if not user_response or not user_response.user:
+            raise ValueError("Usuario no encontrado")
+        return user_response.user.id
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido o expirado",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 def assert_survey_in_status(
