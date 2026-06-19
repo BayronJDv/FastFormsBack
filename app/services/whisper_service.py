@@ -14,6 +14,7 @@ Por defecto se usa ``local`` para no depender de la cuota de OpenAI.
 import io
 import math
 import os
+import subprocess
 import tempfile
 from typing import Tuple
 
@@ -37,33 +38,62 @@ MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 
 # Cache del modelo local: cargarlo es costoso, así que se hace una sola vez.
 _local_model = None
-_ffmpeg_path_ready = False
+
+# Frecuencia de muestreo que espera openai-whisper (16 kHz mono).
+_WHISPER_SAMPLE_RATE = 16000
 
 
-def _ensure_ffmpeg_on_path() -> None:
-    """Asegura que `ffmpeg` sea invocable por openai-whisper.
+def _ffmpeg_exe() -> str:
+    """Devuelve la ruta al binario de ffmpeg a usar.
 
-    En Windows (y entornos donde el binario del sistema no está disponible)
-    usamos el `ffmpeg` que trae `imageio-ffmpeg`, que se instala como
-    dependencia Python y no requiere PATH del sistema. Lo prependemos al PATH
-    del proceso para que el subprocess de openai-whisper lo encuentre.
+    Prioriza el binario empaquetado por `imageio-ffmpeg` (su nombre real es
+    versionado, p. ej. `ffmpeg-win64-v4.2.2.exe`, por eso lo invocamos por
+    ruta absoluta en vez de depender del PATH). Si no está disponible, cae al
+    `ffmpeg` del sistema.
     """
-    global _ffmpeg_path_ready
-    if _ffmpeg_path_ready:
-        return
     try:
         import imageio_ffmpeg
 
-        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-        ffmpeg_dir = os.path.dirname(ffmpeg_exe)
-        current_path = os.environ.get("PATH", "")
-        if ffmpeg_dir and ffmpeg_dir not in current_path:
-            os.environ["PATH"] = ffmpeg_dir + os.pathsep + current_path
+        return imageio_ffmpeg.get_ffmpeg_exe()
     except Exception:
-        # Si `imageio-ffmpeg` no está disponible seguimos confiando en el
-        # ffmpeg del sistema; el error real se reporta al transcribir.
-        pass
-    _ffmpeg_path_ready = True
+        return "ffmpeg"
+
+
+def _load_audio(path: str, sample_rate: int = _WHISPER_SAMPLE_RATE):
+    """Decodifica un archivo de audio a un arreglo float32 mono normalizado.
+
+    Replica `whisper.load_audio` pero invocando ffmpeg por ruta absoluta, de
+    modo que funcione aunque el binario no se llame literalmente `ffmpeg` ni
+    esté en el PATH (caso típico en Windows con `imageio-ffmpeg`).
+    """
+    cmd = [
+        _ffmpeg_exe(),
+        "-nostdin",
+        "-threads", "0",
+        "-i", path,
+        "-f", "s16le",
+        "-ac", "1",
+        "-acodec", "pcm_s16le",
+        "-ar", str(sample_rate),
+        "-",
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, check=True)
+    except FileNotFoundError as exc:
+        raise TranscriptionProviderError(
+            "No se encontro 'ffmpeg'. Instala 'imageio-ffmpeg' "
+            "('pip install imageio-ffmpeg') para usar el binario empaquetado, "
+            "o instala ffmpeg en el sistema y asegurate de que este en el PATH."
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or b"").decode("utf-8", errors="ignore").strip()
+        raise TranscriptionProviderError(
+            f"ffmpeg no pudo decodificar el audio: {detail[-300:]}"
+        ) from exc
+
+    import numpy as np
+
+    return np.frombuffer(proc.stdout, np.int16).astype(np.float32) / 32768.0
 
 
 class TranscriptionFormatError(ValueError):
@@ -138,14 +168,12 @@ def _get_local_model():
     if _local_model is not None:
         return _local_model
 
-    _ensure_ffmpeg_on_path()
-
     try:
         import whisper  # paquete: openai-whisper
     except ImportError as exc:
         raise TranscriptionProviderError(
             "La libreria 'openai-whisper' no esta instalada en el servidor. "
-            "Instalala con 'pip install openai-whisper' (requiere ffmpeg)."
+            "Instalala con 'pip install openai-whisper'."
         ) from exc
 
     try:
@@ -162,11 +190,12 @@ def _get_local_model():
 def _transcribe_local(
     filename: str, data: bytes, language: str
 ) -> Tuple[str, str, float | None]:
-    _ensure_ffmpeg_on_path()
     model = _get_local_model()
 
-    # openai-whisper decodifica el audio con ffmpeg a partir de una ruta de
-    # archivo, así que volcamos los bytes a un temporal con la extensión real.
+    # Volcamos los bytes a un temporal y decodificamos el audio nosotros mismos
+    # (con la ruta absoluta del ffmpeg empaquetado) para entregarle a Whisper un
+    # arreglo numpy. Así evitamos que openai-whisper invoque `ffmpeg` por nombre,
+    # que falla en Windows cuando el binario no se llama literalmente `ffmpeg`.
     ext = _extension(filename) or "webm"
     tmp_path = None
     try:
@@ -174,15 +203,10 @@ def _transcribe_local(
             tmp.write(data)
             tmp_path = tmp.name
 
-        result = model.transcribe(tmp_path, language=language, fp16=False)
+        audio = _load_audio(tmp_path)
+        result = model.transcribe(audio, language=language, fp16=False)
     except TranscriptionProviderError:
         raise
-    except FileNotFoundError as exc:
-        raise TranscriptionProviderError(
-            "No se encontro 'ffmpeg' en el sistema. Instala 'imageio-ffmpeg' "
-            "('pip install imageio-ffmpeg') para usar el binario empaquetado, "
-            "o instala ffmpeg en el sistema y asegurate de que este en el PATH."
-        ) from exc
     except Exception as exc:
         raise TranscriptionProviderError(
             f"Fallo al transcribir localmente con Whisper: {exc}."

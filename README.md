@@ -105,8 +105,10 @@ variable `WHISPER_PROVIDER`:
 
 1. `pip install -r requirements.txt` instala `openai-whisper` (arrastra
    `torch`) y `imageio-ffmpeg`, que trae el binario de `ffmpeg` empaquetado.
-   **No necesitas instalar `ffmpeg` en el sistema** — el servicio prepende
-   ese binario al `PATH` del proceso automáticamente al arrancar.
+   **No necesitas instalar `ffmpeg` en el sistema** — el servicio decodifica
+   el audio invocando ese binario por su ruta absoluta y le entrega a Whisper
+   el arreglo de audio ya decodificado (evita el `WinError 2` de Windows,
+   donde el binario empaquetado no se llama literalmente `ffmpeg`).
 2. Si preferís usar el `ffmpeg` del sistema (o lo necesitás para otras
    tareas), también funciona:
    - Debian/Ubuntu: `sudo apt install ffmpeg`
