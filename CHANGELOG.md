@@ -9,11 +9,18 @@
     propia máquina. Sin API key, sin cuota, sin billing.
   - `openai`: API hospedada (`whisper-1`), requiere `OPENAI_API_KEY` con saldo.
 - `imageio-ffmpeg` agregado al `requirements.txt`: trae un binario de `ffmpeg`
-  empaquetado como dependencia Python. El servicio lo prepende al `PATH` del
-  proceso al arrancar, así no es necesario instalar `ffmpeg` en el sistema
-  (resolvía el `WinError 2 — The system cannot find the file specified` que
-  aparecía en Windows). Si hay `ffmpeg` del sistema, se respeta.
-- Mensaje de error específico cuando `FileNotFoundError` apunta a `ffmpeg`.
+  empaquetado como dependencia Python, así no es necesario instalar `ffmpeg`
+  en el sistema.
+- El proveedor local ahora **decodifica el audio él mismo** (`_load_audio`)
+  invocando ffmpeg por su **ruta absoluta** y le pasa a Whisper un arreglo
+  numpy ya decodificado, en lugar de dejar que `openai-whisper` invoque
+  `ffmpeg` por nombre. Esto resuelve el
+  `WinError 2 — The system cannot find the file specified` en Windows, donde
+  el binario de `imageio-ffmpeg` tiene un nombre versionado
+  (p. ej. `ffmpeg-win64-v4.2.2.exe`) y no se resolvía vía PATH. Si no hay
+  `imageio-ffmpeg`, cae al `ffmpeg` del sistema.
+- Mensaje de error específico cuando `ffmpeg` no se encuentra o falla al
+  decodificar.
 - Motivación: la API hospedada devuelve `429 insufficient_quota` si la cuenta
   de OpenAI no tiene saldo. El proveedor local evita esa dependencia.
 - Nuevas variables `WHISPER_PROVIDER` y `WHISPER_LOCAL_MODEL` (default `base`).

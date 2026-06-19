@@ -185,14 +185,18 @@ class TestSeleccionDeProveedor:
             with pytest.raises(whisper_service.TranscriptionProviderError):
                 whisper_service._get_local_model()
 
-    def test_local_transcribe_usa_el_modelo_cacheado(self):
+    def test_local_transcribe_decodifica_y_usa_el_modelo(self):
         fake_model = MagicMock()
         fake_model.transcribe.return_value = {
             "text": "  hola mundo ",
             "language": "es",
             "segments": [{"avg_logprob": -0.1}, {"avg_logprob": -0.3}],
         }
-        with patch.object(whisper_service, "_get_local_model", return_value=fake_model):
+        with patch.object(
+            whisper_service, "_get_local_model", return_value=fake_model
+        ), patch.object(
+            whisper_service, "_load_audio", return_value=[0.0, 0.1, 0.2]
+        ) as mock_load:
             text, lang, conf = whisper_service._transcribe_local(
                 "clip.webm", b"\x00\x01", "es"
             )
@@ -200,34 +204,31 @@ class TestSeleccionDeProveedor:
         assert text == "hola mundo"
         assert lang == "es"
         assert conf is not None and 0 < conf <= 1
-        fake_model.transcribe.assert_called_once()
+        mock_load.assert_called_once()
+        # Whisper recibe el arreglo decodificado, no la ruta del archivo.
+        args, kwargs = fake_model.transcribe.call_args
+        assert args[0] == [0.0, 0.1, 0.2]
+        assert kwargs["language"] == "es"
 
-    def test_ffmpeg_no_encontrado_mensaje_claro(self):
-        """FileNotFoundError de ffmpeg se traduce a un mensaje accionable."""
-        fake_model = MagicMock()
-        fake_model.transcribe.side_effect = FileNotFoundError(
-            2, "The system cannot find the file specified", "ffmpeg"
-        )
-        with patch.object(whisper_service, "_get_local_model", return_value=fake_model):
+    def test_load_audio_sin_ffmpeg_mensaje_claro(self):
+        """FileNotFoundError del subprocess de ffmpeg da un mensaje accionable."""
+        with patch.object(
+            whisper_service, "_ffmpeg_exe", return_value="ffmpeg"
+        ), patch(
+            "app.services.whisper_service.subprocess.run",
+            side_effect=FileNotFoundError(2, "not found", "ffmpeg"),
+        ):
             with pytest.raises(whisper_service.TranscriptionProviderError) as exc_info:
-                whisper_service._transcribe_local("clip.webm", b"\x00\x01", "es")
+                whisper_service._load_audio("clip.webm")
 
         assert "ffmpeg" in str(exc_info.value).lower()
         assert "imageio-ffmpeg" in str(exc_info.value)
 
-    def test_ensure_ffmpeg_prepend_al_path(self, tmp_path):
-        """`_ensure_ffmpeg_on_path` agrega el dir del binario al PATH del proceso."""
-        fake_dir = str(tmp_path)
-        fake_exe = str(tmp_path / "ffmpeg.exe")
-        fake_module = MagicMock(get_ffmpeg_exe=lambda: fake_exe)
+    def test_ffmpeg_exe_prefiere_el_binario_empaquetado(self):
+        fake_module = MagicMock(get_ffmpeg_exe=lambda: "/bundled/ffmpeg-v4.2.2")
+        with patch.dict(sys.modules, {"imageio_ffmpeg": fake_module}):
+            assert whisper_service._ffmpeg_exe() == "/bundled/ffmpeg-v4.2.2"
 
-        original_path = os.environ.get("PATH", "")
-        with patch.dict(sys.modules, {"imageio_ffmpeg": fake_module}), patch.object(
-            whisper_service, "_ffmpeg_path_ready", False
-        ):
-            try:
-                whisper_service._ensure_ffmpeg_on_path()
-                assert fake_dir in os.environ["PATH"].split(os.pathsep)
-            finally:
-                os.environ["PATH"] = original_path
-                whisper_service._ffmpeg_path_ready = False
+    def test_ffmpeg_exe_cae_al_sistema_si_no_hay_imageio(self):
+        with patch.dict(sys.modules, {"imageio_ffmpeg": None}):
+            assert whisper_service._ffmpeg_exe() == "ffmpeg"
