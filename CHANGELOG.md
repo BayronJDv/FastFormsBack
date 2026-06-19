@@ -6,8 +6,14 @@
 - `whisper_service.py` ahora soporta dos proveedores vía `WHISPER_PROVIDER`:
   - `local` (**por defecto**): paquete open-source
     [`openai-whisper`](https://github.com/openai/whisper), corre el modelo en la
-    propia máquina. Sin API key, sin cuota, sin billing. Requiere `ffmpeg`.
+    propia máquina. Sin API key, sin cuota, sin billing.
   - `openai`: API hospedada (`whisper-1`), requiere `OPENAI_API_KEY` con saldo.
+- `imageio-ffmpeg` agregado al `requirements.txt`: trae un binario de `ffmpeg`
+  empaquetado como dependencia Python. El servicio lo prepende al `PATH` del
+  proceso al arrancar, así no es necesario instalar `ffmpeg` en el sistema
+  (resolvía el `WinError 2 — The system cannot find the file specified` que
+  aparecía en Windows). Si hay `ffmpeg` del sistema, se respeta.
+- Mensaje de error específico cuando `FileNotFoundError` apunta a `ffmpeg`.
 - Motivación: la API hospedada devuelve `429 insufficient_quota` si la cuenta
   de OpenAI no tiene saldo. El proveedor local evita esa dependencia.
 - Nuevas variables `WHISPER_PROVIDER` y `WHISPER_LOCAL_MODEL` (default `base`).

@@ -1,6 +1,7 @@
 """US-12 — Tests del endpoint POST /api/v1/transcribe."""
 
 import io
+import os
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -200,3 +201,33 @@ class TestSeleccionDeProveedor:
         assert lang == "es"
         assert conf is not None and 0 < conf <= 1
         fake_model.transcribe.assert_called_once()
+
+    def test_ffmpeg_no_encontrado_mensaje_claro(self):
+        """FileNotFoundError de ffmpeg se traduce a un mensaje accionable."""
+        fake_model = MagicMock()
+        fake_model.transcribe.side_effect = FileNotFoundError(
+            2, "The system cannot find the file specified", "ffmpeg"
+        )
+        with patch.object(whisper_service, "_get_local_model", return_value=fake_model):
+            with pytest.raises(whisper_service.TranscriptionProviderError) as exc_info:
+                whisper_service._transcribe_local("clip.webm", b"\x00\x01", "es")
+
+        assert "ffmpeg" in str(exc_info.value).lower()
+        assert "imageio-ffmpeg" in str(exc_info.value)
+
+    def test_ensure_ffmpeg_prepend_al_path(self, tmp_path):
+        """`_ensure_ffmpeg_on_path` agrega el dir del binario al PATH del proceso."""
+        fake_dir = str(tmp_path)
+        fake_exe = str(tmp_path / "ffmpeg.exe")
+        fake_module = MagicMock(get_ffmpeg_exe=lambda: fake_exe)
+
+        original_path = os.environ.get("PATH", "")
+        with patch.dict(sys.modules, {"imageio_ffmpeg": fake_module}), patch.object(
+            whisper_service, "_ffmpeg_path_ready", False
+        ):
+            try:
+                whisper_service._ensure_ffmpeg_on_path()
+                assert fake_dir in os.environ["PATH"].split(os.pathsep)
+            finally:
+                os.environ["PATH"] = original_path
+                whisper_service._ffmpeg_path_ready = False

@@ -37,6 +37,33 @@ MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 
 # Cache del modelo local: cargarlo es costoso, así que se hace una sola vez.
 _local_model = None
+_ffmpeg_path_ready = False
+
+
+def _ensure_ffmpeg_on_path() -> None:
+    """Asegura que `ffmpeg` sea invocable por openai-whisper.
+
+    En Windows (y entornos donde el binario del sistema no está disponible)
+    usamos el `ffmpeg` que trae `imageio-ffmpeg`, que se instala como
+    dependencia Python y no requiere PATH del sistema. Lo prependemos al PATH
+    del proceso para que el subprocess de openai-whisper lo encuentre.
+    """
+    global _ffmpeg_path_ready
+    if _ffmpeg_path_ready:
+        return
+    try:
+        import imageio_ffmpeg
+
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        ffmpeg_dir = os.path.dirname(ffmpeg_exe)
+        current_path = os.environ.get("PATH", "")
+        if ffmpeg_dir and ffmpeg_dir not in current_path:
+            os.environ["PATH"] = ffmpeg_dir + os.pathsep + current_path
+    except Exception:
+        # Si `imageio-ffmpeg` no está disponible seguimos confiando en el
+        # ffmpeg del sistema; el error real se reporta al transcribir.
+        pass
+    _ffmpeg_path_ready = True
 
 
 class TranscriptionFormatError(ValueError):
@@ -111,6 +138,8 @@ def _get_local_model():
     if _local_model is not None:
         return _local_model
 
+    _ensure_ffmpeg_on_path()
+
     try:
         import whisper  # paquete: openai-whisper
     except ImportError as exc:
@@ -133,6 +162,7 @@ def _get_local_model():
 def _transcribe_local(
     filename: str, data: bytes, language: str
 ) -> Tuple[str, str, float | None]:
+    _ensure_ffmpeg_on_path()
     model = _get_local_model()
 
     # openai-whisper decodifica el audio con ffmpeg a partir de una ruta de
@@ -147,10 +177,15 @@ def _transcribe_local(
         result = model.transcribe(tmp_path, language=language, fp16=False)
     except TranscriptionProviderError:
         raise
+    except FileNotFoundError as exc:
+        raise TranscriptionProviderError(
+            "No se encontro 'ffmpeg' en el sistema. Instala 'imageio-ffmpeg' "
+            "('pip install imageio-ffmpeg') para usar el binario empaquetado, "
+            "o instala ffmpeg en el sistema y asegurate de que este en el PATH."
+        ) from exc
     except Exception as exc:
         raise TranscriptionProviderError(
-            f"Fallo al transcribir localmente con Whisper: {exc}. "
-            "Verifica que 'ffmpeg' esté instalado y en el PATH."
+            f"Fallo al transcribir localmente con Whisper: {exc}."
         ) from exc
     finally:
         if tmp_path:

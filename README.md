@@ -94,7 +94,7 @@ variable `WHISPER_PROVIDER`:
 
 | `WHISPER_PROVIDER` | Qué usa | Requisitos |
 | --- | --- | --- |
-| `local` (por defecto) | Paquete open-source [`openai/whisper`](https://github.com/openai/whisper). Corre el modelo en la propia máquina. | `ffmpeg` instalado + `pip install openai-whisper`. **Sin API key ni cuota.** |
+| `local` (por defecto) | Paquete open-source [`openai/whisper`](https://github.com/openai/whisper). Corre el modelo en la propia máquina. | `pip install -r requirements.txt` (incluye `openai-whisper` + `imageio-ffmpeg` con el binario empaquetado). **Sin API key ni cuota.** |
 | `openai` | API hospedada de OpenAI (`whisper-1`). | `OPENAI_API_KEY` con saldo disponible. |
 
 > ¿Te salió un error `429 insufficient_quota`? Es de billing de OpenAI, no del
@@ -103,12 +103,15 @@ variable `WHISPER_PROVIDER`:
 
 ### Requisitos del proveedor local (recomendado)
 
-1. **ffmpeg** instalado y en el `PATH`:
+1. `pip install -r requirements.txt` instala `openai-whisper` (arrastra
+   `torch`) y `imageio-ffmpeg`, que trae el binario de `ffmpeg` empaquetado.
+   **No necesitas instalar `ffmpeg` en el sistema** — el servicio prepende
+   ese binario al `PATH` del proceso automáticamente al arrancar.
+2. Si preferís usar el `ffmpeg` del sistema (o lo necesitás para otras
+   tareas), también funciona:
    - Debian/Ubuntu: `sudo apt install ffmpeg`
    - macOS: `brew install ffmpeg`
-   - Windows: `choco install ffmpeg` o descarga oficial.
-2. `pip install -r requirements.txt` (instala `openai-whisper`, que arrastra
-   `torch`).
+   - Windows: `choco install ffmpeg` o descarga oficial y agregar al `PATH`.
 3. La primera transcripción descarga los pesos del modelo
    (`WHISPER_LOCAL_MODEL`, por defecto `base` ≈ 140 MB) y los cachea en
    `~/.cache/whisper`.
