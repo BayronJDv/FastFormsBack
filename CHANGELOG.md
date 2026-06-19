@@ -1,5 +1,27 @@
 # Changelog
 
+## Sprint 4 — Voz (Whisper)
+
+### US-12 · Infra: Servicio de Transcripción (Whisper)
+- Nuevo endpoint `POST /api/v1/transcribe/` que recibe un archivo de audio
+  multipart (`audio`) y un parámetro opcional `language` (por defecto `es`).
+  Devuelve `{text, language, confidence}`.
+- Validaciones: formato webm/mp3/wav, tamaño ≤ 10 MB. Errores HTTP estándar:
+  400 (formato), 413 (tamaño), 401 (sin JWT), 502 (fallo del proveedor).
+- Nueva configuración `OPENAI_API_KEY` / `WHISPER_MODEL` / `WHISPER_DEFAULT_LANGUAGE`
+  en `app/core/config.py`.
+- Nuevo servicio `app/services/whisper_service.py` (validación + cliente OpenAI).
+- Nuevo schema `TranscribeResponse`.
+- Dependencia `openai>=1.40.0` agregada a `requirements.txt`.
+- Tests `tests/unit/test_transcribe.py`: happy path, formato inválido (400),
+  audio grande (413), sin JWT (401), fallo del proveedor (502).
+
+### US-17 · Resultados: Respuestas por Voz
+- Campo `is_voice` (bool, default false) en `AnswerCreate` / `AnswerResult` y
+  en el `INSERT` sobre la tabla `answers`. Permite distinguir respuestas
+  dictadas en el dashboard.
+- Migración SQL acompañante en `FastFormsFront/base.sql` (idempotente).
+
 ## Sprint 3 — Análisis y Cierre
 
 ### US-10 · Resultados: Visualización Core
