@@ -249,6 +249,7 @@ def create_response(payload) -> dict:
             "response_id": response_id,
             "question_id": answer.question_id,
             "answer_text": answer.answer_text,
+            "is_voice": answer.is_voice,
         }
         for answer in payload.answers
     ]
@@ -378,19 +379,23 @@ def get_survey_results(survey: dict) -> dict:
     if response_ids:
         answers_result = (
             supabase.table("answers")
-            .select("question_id, answer_text")
+            .select("question_id, answer_text, is_voice")
             .in_("response_id", response_ids)
             .execute()
         )
         for answer in (answers_result.data or []):
             answers_by_question.setdefault(answer["question_id"], []).append(
-                answer["answer_text"]
+                {
+                    "text": answer["answer_text"],
+                    "is_voice": bool(answer.get("is_voice")),
+                }
             )
 
     question_results = []
     for question in questions:
         question_type = question["question_type"]
-        answer_texts = answers_by_question.get(question["id"], [])
+        raw_answers = answers_by_question.get(question["id"], [])
+        answer_texts = [a["text"] for a in raw_answers]
         entry = {
             "question_id": question["id"],
             "content": question["content"],
@@ -399,6 +404,7 @@ def get_survey_results(survey: dict) -> dict:
         }
         if question_type == "open":
             entry["texts"] = answer_texts
+            entry["text_entries"] = raw_answers
         elif question_type == "yes_no":
             options, _ = _aggregate_choice(answer_texts, YES_NO_OPTIONS)
             entry["options"] = options

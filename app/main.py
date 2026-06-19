@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routes import surveys, questions, responses
+from api.routes import surveys, questions, responses, transcribe
  
 app = FastAPI(
     title="FastForms API",
@@ -35,6 +35,7 @@ app.add_middleware(
 app.include_router(surveys.router, prefix="/api/v1")
 app.include_router(questions.router, prefix="/api/v1")
 app.include_router(responses.router, prefix="/api/v1")
+app.include_router(transcribe.router, prefix="/api/v1")
 
 
 # ---------------------------------------------------------------

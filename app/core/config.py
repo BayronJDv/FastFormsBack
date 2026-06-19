@@ -10,6 +10,9 @@ class Settings:
     def __init__(self):
         self.URL: str = os.getenv("SUPABASE_URL", "")
         self.KEY: str = os.getenv("SUPABASE_KEY", "")
+        self.OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+        self.WHISPER_MODEL: str = os.getenv("WHISPER_MODEL", "whisper-1")
+        self.WHISPER_DEFAULT_LANGUAGE: str = os.getenv("WHISPER_DEFAULT_LANGUAGE", "es")
 
         if not self.URL or not self.KEY:
             raise RuntimeError(

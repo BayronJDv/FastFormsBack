@@ -6,6 +6,7 @@ from datetime import datetime
 class AnswerCreate(BaseModel):
     question_id: int
     answer_text: str
+    is_voice: bool = False
 
     @field_validator("answer_text")
     @classmethod
@@ -32,6 +33,7 @@ class AnswerResult(BaseModel):
     response_id: int
     question_id: int
     answer_text: str
+    is_voice: bool = False
 
 
 class ResponseResult(BaseModel):
