@@ -50,6 +50,12 @@
   en el `INSERT` sobre la tabla `answers`. Permite distinguir respuestas
   dictadas en el dashboard.
 - Migración SQL acompañante en `FastFormsFront/base.sql` (idempotente).
+- **Tolerancia a bases sin migrar**: tanto el `INSERT` de respuestas como el
+  `SELECT` de resultados detectan el error de postgres `42703 column
+  answers.is_voice does not exist`, cachean el feature flag y reintentan
+  la operación sin la columna nueva, asumiendo `is_voice=false`. Evita el
+  500 cuando alguien levanta el backend sin haber corrido el `ALTER TABLE`
+  en Supabase. Tests en `tests/unit/test_is_voice_fallback.py`.
 
 ## Sprint 3 — Análisis y Cierre
 
