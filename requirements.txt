@@ -12,8 +12,11 @@ python-multipart>=0.0.12
 
 # Voice (US-12 — Whisper STT)
 # Proveedor local (por defecto): openai/whisper, corre el modelo en la propia
-# máquina. Requiere ffmpeg instalado en el sistema. Arrastra torch.
+# máquina. Arrastra torch.
 openai-whisper>=20231117
+# Trae un binario de ffmpeg empaquetado como dependencia Python; evita tener
+# que instalar ffmpeg en el sistema (útil sobre todo en Windows).
+imageio-ffmpeg>=0.4.9
 # Proveedor opcional: API hospedada de OpenAI (WHISPER_PROVIDER=openai).
 openai>=1.40.0
 
