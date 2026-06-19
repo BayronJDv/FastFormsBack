@@ -40,9 +40,14 @@ SUPABASE_URL=https://<tu-proyecto>.supabase.co
 SUPABASE_KEY=<tu-anon-o-service-key>
 
 # US-12 — Servicio de transcripción (Whisper)
-OPENAI_API_KEY=<tu-api-key-de-openai>
-WHISPER_MODEL=whisper-1                  # opcional
+# Proveedor: "local" (openai/whisper, por defecto, sin API key) u "openai".
+WHISPER_PROVIDER=local
+WHISPER_LOCAL_MODEL=base                 # tiny/base/small/medium/large/turbo
 WHISPER_DEFAULT_LANGUAGE=es              # opcional
+
+# Solo si WHISPER_PROVIDER=openai:
+# OPENAI_API_KEY=<tu-api-key-de-openai>
+# WHISPER_MODEL=whisper-1
 ```
 
 ## Ejecutar en local
@@ -82,16 +87,37 @@ pytest tests/integration -v
 
 ## Voz con Whisper (US-12 a US-17)
 
-El backlog de voz se apoya en la API de **Whisper** de OpenAI. El servicio
-está encapsulado en `app/services/whisper_service.py` y expuesto a través de
-`POST /api/v1/transcribe/`.
+El backlog de voz se apoya en **Whisper**. El servicio está encapsulado en
+`app/services/whisper_service.py` y expuesto a través de
+`POST /api/v1/transcribe/`. Soporta dos proveedores, seleccionables con la
+variable `WHISPER_PROVIDER`:
 
-### Requisitos
+| `WHISPER_PROVIDER` | Qué usa | Requisitos |
+| --- | --- | --- |
+| `local` (por defecto) | Paquete open-source [`openai/whisper`](https://github.com/openai/whisper). Corre el modelo en la propia máquina. | `ffmpeg` instalado + `pip install openai-whisper`. **Sin API key ni cuota.** |
+| `openai` | API hospedada de OpenAI (`whisper-1`). | `OPENAI_API_KEY` con saldo disponible. |
 
-1. Cuenta de OpenAI con acceso a la API de audio.
-2. Variable `OPENAI_API_KEY` configurada en el `.env`.
-3. Tabla `answers` con la columna `is_voice` (ver `base.sql` y la migración
+> ¿Te salió un error `429 insufficient_quota`? Es de billing de OpenAI, no del
+> código. Con `WHISPER_PROVIDER=local` (el valor por defecto) la transcripción
+> corre en tu máquina sin costo ni cuota.
+
+### Requisitos del proveedor local (recomendado)
+
+1. **ffmpeg** instalado y en el `PATH`:
+   - Debian/Ubuntu: `sudo apt install ffmpeg`
+   - macOS: `brew install ffmpeg`
+   - Windows: `choco install ffmpeg` o descarga oficial.
+2. `pip install -r requirements.txt` (instala `openai-whisper`, que arrastra
+   `torch`).
+3. La primera transcripción descarga los pesos del modelo
+   (`WHISPER_LOCAL_MODEL`, por defecto `base` ≈ 140 MB) y los cachea en
+   `~/.cache/whisper`.
+4. Tabla `answers` con la columna `is_voice` (ver `base.sql` y la migración
    idempotente que incluye, necesaria para US-17).
+
+Tamaños de modelo disponibles (mayor = más preciso y más lento):
+`tiny`, `base`, `small`, `medium`, `large`, `turbo`. Para español, `small`
+o `medium` dan buen balance si la máquina lo permite.
 
 ### Cómo consumir el endpoint
 
@@ -122,7 +148,8 @@ curl -X POST http://localhost:8000/api/v1/transcribe/ \
 
 ### Modelo y umbral de confianza
 
-`whisper-1` no expone una probabilidad por respuesta, pero sí `avg_logprob`
-por segmento. El servicio promedia esos valores y devuelve un score en
-`[0, 1]`. El frontend lo usa como umbral para la selección por voz
-(US-15) antes de marcar una opción automáticamente.
+Whisper no expone una probabilidad por respuesta, pero sí `avg_logprob`
+por segmento (tanto el modelo local como la API en `verbose_json`). El
+servicio promedia esos valores y devuelve un score en `[0, 1]`. El frontend
+lo usa como umbral para la selección por voz (US-15) antes de marcar una
+opción automáticamente.

@@ -2,6 +2,22 @@
 
 ## Sprint 4 — Voz (Whisper)
 
+### Whisper local (openai/whisper) como proveedor por defecto
+- `whisper_service.py` ahora soporta dos proveedores vía `WHISPER_PROVIDER`:
+  - `local` (**por defecto**): paquete open-source
+    [`openai-whisper`](https://github.com/openai/whisper), corre el modelo en la
+    propia máquina. Sin API key, sin cuota, sin billing. Requiere `ffmpeg`.
+  - `openai`: API hospedada (`whisper-1`), requiere `OPENAI_API_KEY` con saldo.
+- Motivación: la API hospedada devuelve `429 insufficient_quota` si la cuenta
+  de OpenAI no tiene saldo. El proveedor local evita esa dependencia.
+- Nuevas variables `WHISPER_PROVIDER` y `WHISPER_LOCAL_MODEL` (default `base`).
+- El modelo local se carga una sola vez (cache en memoria); el audio se vuelca
+  a un temporal para que `ffmpeg` lo decodifique.
+- Mensaje de error específico cuando la API hospedada responde 429.
+- Dependencia `openai-whisper>=20231117` agregada a `requirements.txt`.
+- Tests de selección de proveedor y de la ruta local en
+  `tests/unit/test_transcribe.py`.
+
 ### US-12 · Infra: Servicio de Transcripción (Whisper)
 - Nuevo endpoint `POST /api/v1/transcribe/` que recibe un archivo de audio
   multipart (`audio`) y un parámetro opcional `language` (por defecto `es`).

@@ -11,6 +11,10 @@ pydantic[email]>=2.9.0
 python-multipart>=0.0.12
 
 # Voice (US-12 — Whisper STT)
+# Proveedor local (por defecto): openai/whisper, corre el modelo en la propia
+# máquina. Requiere ffmpeg instalado en el sistema. Arrastra torch.
+openai-whisper>=20231117
+# Proveedor opcional: API hospedada de OpenAI (WHISPER_PROVIDER=openai).
 openai>=1.40.0
 
 # Testing

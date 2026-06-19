@@ -139,3 +139,64 @@ class TestValidacionAudio:
         whisper_service.validate_audio("clip.webm", "audio/webm", b"\x00\x01")
         whisper_service.validate_audio("clip.mp3", "audio/mpeg", b"\x00\x01")
         whisper_service.validate_audio("clip.wav", "audio/wav", b"\x00\x01")
+
+
+class TestSeleccionDeProveedor:
+    """`transcribe_audio` despacha al proveedor configurado en settings."""
+
+    def test_provider_local_es_el_default(self):
+        with patch.object(
+            whisper_service.settings, "WHISPER_PROVIDER", "local"
+        ), patch.object(
+            whisper_service, "_transcribe_local", return_value=("local", "es", 0.8)
+        ) as mock_local, patch.object(
+            whisper_service, "_transcribe_openai"
+        ) as mock_openai:
+            text, lang, conf = whisper_service.transcribe_audio(
+                "clip.webm", "audio/webm", b"\x00\x01", language="es"
+            )
+
+        assert (text, lang, conf) == ("local", "es", 0.8)
+        mock_local.assert_called_once()
+        mock_openai.assert_not_called()
+
+    def test_provider_openai_usa_la_api(self):
+        with patch.object(
+            whisper_service.settings, "WHISPER_PROVIDER", "openai"
+        ), patch.object(
+            whisper_service, "_transcribe_openai", return_value=("api", "es", 0.9)
+        ) as mock_openai, patch.object(
+            whisper_service, "_transcribe_local"
+        ) as mock_local:
+            result = whisper_service.transcribe_audio(
+                "clip.webm", "audio/webm", b"\x00\x01", language="es"
+            )
+
+        assert result == ("api", "es", 0.9)
+        mock_openai.assert_called_once()
+        mock_local.assert_not_called()
+
+    def test_local_sin_paquete_lanza_provider_error(self):
+        # Forzamos que el modelo no esté cacheado y que el import falle.
+        with patch.object(whisper_service, "_local_model", None), patch.dict(
+            sys.modules, {"whisper": None}
+        ):
+            with pytest.raises(whisper_service.TranscriptionProviderError):
+                whisper_service._get_local_model()
+
+    def test_local_transcribe_usa_el_modelo_cacheado(self):
+        fake_model = MagicMock()
+        fake_model.transcribe.return_value = {
+            "text": "  hola mundo ",
+            "language": "es",
+            "segments": [{"avg_logprob": -0.1}, {"avg_logprob": -0.3}],
+        }
+        with patch.object(whisper_service, "_get_local_model", return_value=fake_model):
+            text, lang, conf = whisper_service._transcribe_local(
+                "clip.webm", b"\x00\x01", "es"
+            )
+
+        assert text == "hola mundo"
+        assert lang == "es"
+        assert conf is not None and 0 < conf <= 1
+        fake_model.transcribe.assert_called_once()
