@@ -9,6 +9,19 @@ from schemas.survey import SurveyCreate
 # Opciones implicitas para las preguntas Si/No (no se guardan en la BD).
 YES_NO_OPTIONS = ["Sí", "No"]
 
+# Cache para evitar reintentar el SELECT/INSERT con `is_voice` si ya sabemos
+# que la columna no existe en esta base. Si el operador corre la migracion
+# (ver `base.sql`), basta con reiniciar el backend para volver a usarla.
+_answers_has_is_voice: Optional[bool] = None
+
+
+def _missing_column(exc: Exception, column: str) -> bool:
+    """Detecta el error de postgres `42703 column ... does not exist`."""
+    text = str(exc)
+    return "42703" in text or f"column answers.{column} does not exist" in text or (
+        column in text and "does not exist" in text
+    )
+
 
 def _generate_unique_code(length: int = 5) -> str:
     """Genera un codigo alfanumerico en mayusculas (ej: A7X9K)."""
@@ -244,17 +257,38 @@ def create_response(payload) -> dict:
     response = response_result.data[0]
     response_id = response["id"]
 
-    answers_data = [
-        {
+    def _build_answers(include_voice: bool) -> list:
+        row = lambda answer: {
             "response_id": response_id,
             "question_id": answer.question_id,
             "answer_text": answer.answer_text,
-            "is_voice": answer.is_voice,
+            **({"is_voice": answer.is_voice} if include_voice else {}),
         }
-        for answer in payload.answers
-    ]
+        return [row(a) for a in payload.answers]
 
-    answers_result = supabase.table("answers").insert(answers_data).execute()
+    global _answers_has_is_voice
+    include_voice = _answers_has_is_voice is not False
+
+    try:
+        answers_result = (
+            supabase.table("answers")
+            .insert(_build_answers(include_voice=include_voice))
+            .execute()
+        )
+    except Exception as exc:
+        if include_voice and _missing_column(exc, "is_voice"):
+            # La migracion de US-17 todavia no se aplico en esta base; nos
+            # adaptamos y reintentamos sin la columna nueva.
+            _answers_has_is_voice = False
+            answers_result = (
+                supabase.table("answers")
+                .insert(_build_answers(include_voice=False))
+                .execute()
+            )
+        else:
+            supabase.table("responses").delete().eq("id", response_id).execute()
+            raise
+
     if not answers_result.data:
         # Rollback manual
         supabase.table("responses").delete().eq("id", response_id).execute()
@@ -377,12 +411,33 @@ def get_survey_results(survey: dict) -> dict:
 
     answers_by_question: dict = {}
     if response_ids:
-        answers_result = (
-            supabase.table("answers")
-            .select("question_id, answer_text, is_voice")
-            .in_("response_id", response_ids)
-            .execute()
+        global _answers_has_is_voice
+        include_voice = _answers_has_is_voice is not False
+        columns = (
+            "question_id, answer_text, is_voice"
+            if include_voice
+            else "question_id, answer_text"
         )
+        try:
+            answers_result = (
+                supabase.table("answers")
+                .select(columns)
+                .in_("response_id", response_ids)
+                .execute()
+            )
+        except Exception as exc:
+            if include_voice and _missing_column(exc, "is_voice"):
+                # La migracion de US-17 todavia no se aplico en esta base.
+                _answers_has_is_voice = False
+                answers_result = (
+                    supabase.table("answers")
+                    .select("question_id, answer_text")
+                    .in_("response_id", response_ids)
+                    .execute()
+                )
+            else:
+                raise
+
         for answer in (answers_result.data or []):
             answers_by_question.setdefault(answer["question_id"], []).append(
                 {
