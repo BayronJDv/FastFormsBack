@@ -1,5 +1,10 @@
+import csv
+import io
+
 from fastapi import APIRouter, HTTPException, Depends, status
-from typing import List
+from fastapi.responses import StreamingResponse
+from typing import List, Optional
+from httpx import ConnectError
 
 from schemas.survey import SurveyCreate, SurveyResponse
 from schemas.draft import DraftPayload
@@ -214,3 +219,60 @@ def update_draft(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
         )
+
+
+# Exportar resultados a CSV
+@router.get(
+    "/{survey_id}/results/csv",
+    summary="Exportar resultados de una encuesta a CSV",
+)
+def export_survey_results_csv(
+    survey_id: int,
+    creator_id: str = Depends(get_current_user_id),
+):
+    """
+    Descarga un archivo CSV con todas las respuestas de la encuesta.
+    Cada fila representa una respuesta individual a una pregunta.
+    Ordenado por ID de respuesta y posición de la pregunta.
+    Solo el creador autenticado puede exportar.
+    """
+    _get_owned_survey_or_error(survey_id, creator_id)
+
+    try:
+        rows = supabase_service.get_survey_responses_raw(survey_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "ID Respuesta",
+        "Fecha de envío",
+        "NumPregunta",
+        "Pregunta",
+        "Tipo",
+        "Respuesta",
+    ])
+    for row in rows:
+        writer.writerow([
+            row["response_id"],
+            row["submitted_at"],
+            row["question_position"],
+            row["question_content"],
+            row["question_type"],
+            row["answer_text"],
+        ])
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="encuesta_{survey_id}_resultados.csv"'
+            ),
+        },
+    )
