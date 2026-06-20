@@ -12,10 +12,11 @@ class OptionResult(BaseModel):
 
 
 class TextAnswer(BaseModel):
-    """US-17 — Texto de respuesta abierta + origen (voz/teclado)."""
+    """US-17 / US-18 — Texto de respuesta abierta + origen y idioma."""
 
     text: str
     is_voice: bool = False
+    language: Optional[str] = None
 
 
 class QuestionResult(BaseModel):

@@ -44,6 +44,7 @@ SUPABASE_KEY=<tu-anon-o-service-key>
 WHISPER_PROVIDER=local
 WHISPER_LOCAL_MODEL=base                 # tiny/base/small/medium/large/turbo
 WHISPER_DEFAULT_LANGUAGE=es              # opcional
+WHISPER_WARMUP=true                      # pre-carga el modelo en el arranque
 
 # Solo si WHISPER_PROVIDER=openai:
 # OPENAI_API_KEY=<tu-api-key-de-openai>
@@ -117,12 +118,18 @@ variable `WHISPER_PROVIDER`:
 3. La primera transcripción descarga los pesos del modelo
    (`WHISPER_LOCAL_MODEL`, por defecto `base` ≈ 140 MB) y los cachea en
    `~/.cache/whisper`.
-4. Tabla `answers` con la columna `is_voice` (ver `base.sql` y la migración
-   idempotente que incluye, necesaria para US-17).
+4. Tabla `answers` con las columnas `is_voice` (US-17) y `language` (US-18).
+   Ver `base.sql` y las migraciones idempotentes que incluye. El backend
+   tolera bases sin estas columnas (reintenta sin ellas), pero el feature
+   solo queda completo tras aplicarlas.
 
 Tamaños de modelo disponibles (mayor = más preciso y más lento):
 `tiny`, `base`, `small`, `medium`, `large`, `turbo`. Para español, `small`
 o `medium` dan buen balance si la máquina lo permite.
+
+El modelo se **pre-carga en el arranque** (warm-up en un hilo). Se puede
+desactivar con `WHISPER_WARMUP=false` para arrancar más rápido y cargarlo
+de forma perezosa en el primer `/transcribe`.
 
 ### Cómo consumir el endpoint
 
@@ -131,25 +138,60 @@ o `medium` dan buen balance si la máquina lo permite.
 | Campo | Tipo | Descripción |
 | --- | --- | --- |
 | `audio` | archivo | webm / mp3 / wav, ≤ 60 s, ≤ 10 MB |
-| `language` | string (opcional) | ISO 639-1, por defecto `es` |
+| `language` | string (opcional) | ISO 639-1 (`es`), `auto` para detectar (US-18), o vacío |
+| `task` | string (opcional) | `transcribe` (def.) o `translate` → inglés (US-18) |
+| `normalize` | string (opcional) | `code` para normalizar a código de encuesta (US-19) |
 
 Respuesta (`200 OK`):
 
 ```json
-{ "text": "Hola mundo", "language": "es", "confidence": 0.95 }
+{
+  "text": "Hola mundo",
+  "language": "es",
+  "confidence": 0.95,
+  "segments": [{ "start": 0.0, "end": 1.2, "text": "Hola mundo" }],
+  "normalized_code": null
+}
 ```
 
-Errores: `400` (formato), `413` (excede 10 MB), `401` (sin JWT) y `502`
-(fallo del proveedor).
+Errores: `400` (formato), `413` (excede 10 MB), `401` (sin JWT — opcional),
+`502` (fallo del proveedor) y `503` (modelo local no cargado).
 
-Ejemplo con `curl`:
+Ejemplos con `curl`:
 
 ```bash
+# Transcripción simple (es)
 curl -X POST http://localhost:8000/api/v1/transcribe/ \
-  -H "Authorization: Bearer <token>" \
-  -F "audio=@clip.webm" \
-  -F "language=es"
+  -F "audio=@clip.webm" -F "language=es"
+
+# Detección automática de idioma (US-18)
+curl -X POST http://localhost:8000/api/v1/transcribe/ \
+  -F "audio=@clip.webm" -F "language=auto"
+
+# Código de encuesta por voz (US-19)
+curl -X POST http://localhost:8000/api/v1/transcribe/ \
+  -F "audio=@clip.webm" -F "normalize=code"
 ```
+
+### Multilingüe (US-18)
+
+`language=auto` deja que Whisper detecte el idioma del audio sin
+configuración previa; el idioma detectado vuelve en `language` y se persiste
+en `answers.language` para etiquetarlo en el dashboard. `task=translate` usa
+el modo de traducción de Whisper para devolver el texto en inglés (útil para
+unificar el análisis de respuestas multilingües).
+
+> El paso opcional "LLM → español" descrito en el backlog queda como
+> follow-up: este stack no tiene un proveedor LLM configurado. La capacidad
+> de traducción de Whisper (`task=translate`) sí está disponible.
+
+### Código por voz (US-19)
+
+Con `normalize=code`, el backend pasa la transcripción por
+`services/voice_code.normalize_spoken_code`, que convierte números y letras
+dictados a una cadena `[A-Z0-9]` ("a siete equis nueve ka" → `A7X9K`,
+"A-7-X-9-K" → `A7X9K`). El frontend muestra el código interpretado para
+confirmar antes de validar.
 
 ### Modelo y umbral de confianza
 

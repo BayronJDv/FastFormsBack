@@ -33,21 +33,18 @@ class _MissingColumnError(Exception):
 @pytest.fixture(autouse=True)
 def _reset_cache():
     """Resetea el cache de feature detection antes de cada test."""
-    supabase_service._answers_has_is_voice = None
+    supabase_service._answers_missing_columns = set()
     yield
-    supabase_service._answers_has_is_voice = None
+    supabase_service._answers_missing_columns = set()
 
 
 class TestDeteccionColumnaFaltante:
     def test_missing_column_reconoce_42703(self):
         exc = _MissingColumnError()
-        assert supabase_service._missing_column(exc, "is_voice") is True
+        assert supabase_service._missing_column_name(exc) == "is_voice"
 
     def test_missing_column_no_confunde_otros_errores(self):
-        assert (
-            supabase_service._missing_column(RuntimeError("network"), "is_voice")
-            is False
-        )
+        assert supabase_service._missing_column_name(RuntimeError("network")) is None
 
 
 class TestCreateResponseSinColumna:
@@ -113,8 +110,8 @@ class TestCreateResponseSinColumna:
         # 2) El primer intento incluyo is_voice, el segundo no.
         assert any("is_voice" in row for row in inserts[0])
         assert all("is_voice" not in row for row in inserts[1])
-        # 3) Se cachea el flag para que siguientes inserts ya no lo intenten.
-        assert supabase_service._answers_has_is_voice is False
+        # 3) Se cachea la columna faltante para no reintentarla.
+        assert "is_voice" in supabase_service._answers_missing_columns
 
 
 class TestGetSurveyResultsSinColumna:
@@ -173,5 +170,5 @@ class TestGetSurveyResultsSinColumna:
         open_q = result["questions"][0]
         assert open_q["texts"] == ["Excelente servicio"]
         assert open_q["text_entries"] == [
-            {"text": "Excelente servicio", "is_voice": False}
+            {"text": "Excelente servicio", "is_voice": False, "language": None}
         ]
