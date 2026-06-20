@@ -1,5 +1,35 @@
 # Changelog
 
+## Sprint 6 — Voz multilingüe y acceso por voz
+
+### US-18 · Internacionalización: Encuestas Multilingües por Voz
+- `transcribe_audio` acepta `language="auto"` (detección automática de Whisper,
+  sin configuración) y `task="translate"` (modo traducción a inglés). Devuelve
+  el idioma detectado.
+- El endpoint `/transcribe` expone los form params `language` y `task`.
+- Nueva columna `answers.language` (ISO 639-1) persistida con cada respuesta
+  por voz; misma tolerancia a bases sin migrar que `is_voice`.
+- `QuestionResult.text_entries` ahora incluye `language` para etiquetar el
+  idioma en el dashboard.
+
+### US-19 · Acceso: Ingreso del Código de Encuesta por Voz
+- Nuevo `services/voice_code.normalize_spoken_code`: convierte una
+  transcripción dictada a un código `[A-Z0-9]` ("a siete equis nueve ka" →
+  `A7X9K`), mapeando números y letras en palabras (es/en), frases ("doble u"
+  → W, "i griega" → Y), y limpiando separadores/acentos.
+- `/transcribe` acepta `normalize=code` y devuelve `normalized_code`.
+- Tests en `tests/unit/test_voice_code.py`.
+
+### US-12 (refinamientos para Whisper local)
+- `TranscribeResponse` ahora incluye `segments` (`{start, end, text}`) y
+  `normalized_code`.
+- Nuevo error `ModelNotLoadedError` → HTTP **503** cuando el modelo local no
+  carga (paquete ausente o fallo al cargar).
+- Warm-up del modelo en el arranque (lifespan), configurable con
+  `WHISPER_WARMUP` (por defecto activado), en un hilo para no bloquear.
+- `transcribe_audio` ahora devuelve un dict
+  `{text, language, confidence, segments}` (antes una tupla).
+
 ## Sprint 4 — Voz (Whisper)
 
 ### Whisper local (openai/whisper) como proveedor por defecto

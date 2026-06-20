@@ -16,7 +16,6 @@ import math
 import os
 import subprocess
 import tempfile
-from typing import Tuple
 
 from core.config import settings
 
@@ -108,6 +107,10 @@ class TranscriptionProviderError(RuntimeError):
     """Fallo del proveedor de transcripción (502)."""
 
 
+class ModelNotLoadedError(RuntimeError):
+    """El modelo local de Whisper no se pudo cargar (503)."""
+
+
 def _extension(filename: str) -> str:
     if not filename or "." not in filename:
         return ""
@@ -133,29 +136,49 @@ def validate_audio(filename: str, content_type: str, data: bytes) -> None:
         )
 
 
+def _resolve_language(language: str | None) -> str | None:
+    """Traduce el parámetro de idioma del cliente al que espera Whisper.
+
+    - ``None`` / ``""``  → idioma por defecto (``WHISPER_DEFAULT_LANGUAGE``).
+    - ``"auto"``         → ``None`` (Whisper detecta el idioma solo, US-18).
+    - código específico  → se respeta tal cual.
+    """
+    if language is None or language == "":
+        return settings.WHISPER_DEFAULT_LANGUAGE
+    if language.strip().lower() == "auto":
+        return None
+    return language
+
+
 def transcribe_audio(
     filename: str,
     content_type: str,
     data: bytes,
     language: str | None = None,
-) -> Tuple[str, str, float | None]:
+    task: str = "transcribe",
+) -> dict:
     """
-    Transcribe el audio y devuelve `(text, language, confidence)`.
+    Transcribe el audio y devuelve un dict
+    ``{text, language, confidence, segments}``.
 
-    `confidence` es opcional: Whisper no expone una probabilidad por respuesta,
-    pero entrega `avg_logprob` por segmento, que convertimos en un score [0, 1]
-    para que el frontend pueda aplicar el umbral de US-15.
+    - ``language``: código ISO (``"es"``), ``"auto"`` para detección automática
+      (US-18), o ``None`` para usar el idioma por defecto.
+    - ``task``: ``"transcribe"`` (mismo idioma) o ``"translate"`` (traduce a
+      inglés usando el modo de traducción de Whisper, US-18).
+    - ``confidence`` proviene del ``avg_logprob`` por segmento, mapeado a
+      ``[0, 1]`` para el umbral de US-15.
 
-    Despacha al proveedor configurado en `WHISPER_PROVIDER`.
+    Despacha al proveedor configurado en ``WHISPER_PROVIDER``.
     """
     validate_audio(filename, content_type, data)
 
-    lang = language or settings.WHISPER_DEFAULT_LANGUAGE
+    lang = _resolve_language(language)
+    task = task if task in ("transcribe", "translate") else "transcribe"
     provider = (settings.WHISPER_PROVIDER or "local").lower()
 
     if provider == "openai":
-        return _transcribe_openai(filename, data, lang)
-    return _transcribe_local(filename, data, lang)
+        return _transcribe_openai(filename, data, lang, task)
+    return _transcribe_local(filename, data, lang, task)
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +194,7 @@ def _get_local_model():
     try:
         import whisper  # paquete: openai-whisper
     except ImportError as exc:
-        raise TranscriptionProviderError(
+        raise ModelNotLoadedError(
             "La libreria 'openai-whisper' no esta instalada en el servidor. "
             "Instalala con 'pip install openai-whisper'."
         ) from exc
@@ -179,7 +202,7 @@ def _get_local_model():
     try:
         _local_model = whisper.load_model(settings.WHISPER_LOCAL_MODEL)
     except Exception as exc:
-        raise TranscriptionProviderError(
+        raise ModelNotLoadedError(
             f"No se pudo cargar el modelo Whisper local "
             f"'{settings.WHISPER_LOCAL_MODEL}': {exc}"
         ) from exc
@@ -187,9 +210,24 @@ def _get_local_model():
     return _local_model
 
 
+def warm_up() -> bool:
+    """US-12 — Pre-carga el modelo local (llamado en el startup del backend).
+
+    Devuelve True si quedó cargado, False si falló (sin lanzar, para no
+    abortar el arranque; el primer /transcribe reportará el 503 si procede).
+    """
+    if (settings.WHISPER_PROVIDER or "local").lower() != "local":
+        return False
+    try:
+        _get_local_model()
+        return True
+    except Exception:
+        return False
+
+
 def _transcribe_local(
-    filename: str, data: bytes, language: str
-) -> Tuple[str, str, float | None]:
+    filename: str, data: bytes, language: str | None, task: str = "transcribe"
+) -> dict:
     model = _get_local_model()
 
     # Volcamos los bytes a un temporal y decodificamos el audio nosotros mismos
@@ -204,8 +242,10 @@ def _transcribe_local(
             tmp_path = tmp.name
 
         audio = _load_audio(tmp_path)
-        result = model.transcribe(audio, language=language, fp16=False)
-    except TranscriptionProviderError:
+        result = model.transcribe(
+            audio, language=language, task=task, fp16=False
+        )
+    except (TranscriptionProviderError, ModelNotLoadedError):
         raise
     except Exception as exc:
         raise TranscriptionProviderError(
@@ -219,10 +259,16 @@ def _transcribe_local(
                 pass
 
     text = (result.get("text") or "").strip()
-    detected_language = result.get("language") or language
+    detected_language = result.get("language") or language or "es"
+    segments = _extract_segments(result.get("segments"))
     confidence = _score_from_segments(result.get("segments"))
 
-    return text, detected_language, confidence
+    return {
+        "text": text,
+        "language": detected_language,
+        "confidence": confidence,
+        "segments": segments,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -244,20 +290,28 @@ def _build_client():
 
 
 def _transcribe_openai(
-    filename: str, data: bytes, language: str
-) -> Tuple[str, str, float | None]:
+    filename: str, data: bytes, language: str | None, task: str = "transcribe"
+) -> dict:
     client = _build_client()
 
     buffer = io.BytesIO(data)
     buffer.name = filename or f"audio.{(_extension(filename) or 'webm')}"
 
+    # La API expone la traducción como un endpoint distinto.
+    endpoint = (
+        client.audio.translations if task == "translate"
+        else client.audio.transcriptions
+    )
+    kwargs = {
+        "model": settings.WHISPER_MODEL,
+        "file": buffer,
+        "response_format": "verbose_json",
+    }
+    if task != "translate" and language:
+        kwargs["language"] = language
+
     try:
-        result = client.audio.transcriptions.create(
-            model=settings.WHISPER_MODEL,
-            file=buffer,
-            language=language,
-            response_format="verbose_json",
-        )
+        result = endpoint.create(**kwargs)
     except Exception as exc:
         # Mensaje específico cuando la cuenta no tiene cuota/billing (429).
         if "insufficient_quota" in str(exc) or "429" in str(exc):
@@ -270,15 +324,45 @@ def _transcribe_openai(
         ) from exc
 
     text = getattr(result, "text", "") or ""
-    detected_language = getattr(result, "language", None) or language
-    confidence = _score_from_segments(getattr(result, "segments", None))
-
-    return text.strip(), detected_language, confidence
+    detected_language = getattr(result, "language", None) or language or "es"
+    raw_segments = getattr(result, "segments", None)
+    return {
+        "text": text.strip(),
+        "language": detected_language,
+        "confidence": _score_from_segments(raw_segments),
+        "segments": _extract_segments(raw_segments),
+    }
 
 
 # ---------------------------------------------------------------------------
 # Utilidades comunes
 # ---------------------------------------------------------------------------
+
+def _extract_segments(segments) -> list[dict]:
+    """Normaliza los segmentos de Whisper a `[{start, end, text}]`."""
+    if not segments:
+        return []
+    out: list[dict] = []
+    for segment in segments:
+        if isinstance(segment, dict):
+            start = segment.get("start")
+            end = segment.get("end")
+            text = segment.get("text")
+        else:
+            start = getattr(segment, "start", None)
+            end = getattr(segment, "end", None)
+            text = getattr(segment, "text", None)
+        if text is None:
+            continue
+        out.append(
+            {
+                "start": round(float(start or 0.0), 3),
+                "end": round(float(end or 0.0), 3),
+                "text": str(text).strip(),
+            }
+        )
+    return out
+
 
 def _score_from_segments(segments) -> float | None:
     """Convierte el `avg_logprob` promedio en un score [0, 1] (mayor = mejor)."""

@@ -9,18 +9,35 @@ from schemas.survey import SurveyCreate
 # Opciones implicitas para las preguntas Si/No (no se guardan en la BD).
 YES_NO_OPTIONS = ["Sí", "No"]
 
-# Cache para evitar reintentar el SELECT/INSERT con `is_voice` si ya sabemos
-# que la columna no existe en esta base. Si el operador corre la migracion
-# (ver `base.sql`), basta con reiniciar el backend para volver a usarla.
-_answers_has_is_voice: Optional[bool] = None
+# Columnas opcionales de `answers` que dependen de migraciones de voz
+# (US-17: is_voice, US-18: language). Si la base todavia no las tiene, el
+# servicio se adapta y reintenta sin ellas, cacheando aqui las faltantes para
+# no repetir el intento fallido en cada llamada. Tras correr la migracion (ver
+# `base.sql`), basta reiniciar el backend.
+_OPTIONAL_ANSWER_COLUMNS = ("is_voice", "language")
+_answers_missing_columns: set = set()
 
 
-def _missing_column(exc: Exception, column: str) -> bool:
+def _is_missing_column_error(exc: Exception) -> bool:
     """Detecta el error de postgres `42703 column ... does not exist`."""
     text = str(exc)
-    return "42703" in text or f"column answers.{column} does not exist" in text or (
-        column in text and "does not exist" in text
-    )
+    return "42703" in text or "does not exist" in text
+
+
+def _missing_column_name(exc: Exception) -> Optional[str]:
+    """Devuelve cual de las columnas opcionales falta segun el error, si aplica."""
+    if not _is_missing_column_error(exc):
+        return None
+    text = str(exc)
+    for column in _OPTIONAL_ANSWER_COLUMNS:
+        if column in text:
+            return column
+    return None
+
+
+def _present_optional_columns() -> tuple:
+    """Columnas opcionales que (hasta donde sabemos) si existen en la base."""
+    return tuple(c for c in _OPTIONAL_ANSWER_COLUMNS if c not in _answers_missing_columns)
 
 
 def _generate_unique_code(length: int = 5) -> str:
@@ -257,35 +274,39 @@ def create_response(payload) -> dict:
     response = response_result.data[0]
     response_id = response["id"]
 
-    def _build_answers(include_voice: bool) -> list:
-        row = lambda answer: {
-            "response_id": response_id,
-            "question_id": answer.question_id,
-            "answer_text": answer.answer_text,
-            **({"is_voice": answer.is_voice} if include_voice else {}),
+    def _build_answers() -> list:
+        present = _present_optional_columns()
+        optional_values = {
+            "is_voice": lambda a: a.is_voice,
+            "language": lambda a: a.language,
         }
+
+        def row(answer):
+            base = {
+                "response_id": response_id,
+                "question_id": answer.question_id,
+                "answer_text": answer.answer_text,
+            }
+            for column in present:
+                base[column] = optional_values[column](answer)
+            return base
+
         return [row(a) for a in payload.answers]
 
-    global _answers_has_is_voice
-    include_voice = _answers_has_is_voice is not False
-
-    try:
-        answers_result = (
-            supabase.table("answers")
-            .insert(_build_answers(include_voice=include_voice))
-            .execute()
-        )
-    except Exception as exc:
-        if include_voice and _missing_column(exc, "is_voice"):
-            # La migracion de US-17 todavia no se aplico en esta base; nos
-            # adaptamos y reintentamos sin la columna nueva.
-            _answers_has_is_voice = False
+    # Reintentamos hasta que la base acepte el insert, descartando en cada
+    # vuelta cualquier columna opcional que aun no exista (US-17/US-18).
+    answers_result = None
+    while True:
+        try:
             answers_result = (
-                supabase.table("answers")
-                .insert(_build_answers(include_voice=False))
-                .execute()
+                supabase.table("answers").insert(_build_answers()).execute()
             )
-        else:
+            break
+        except Exception as exc:
+            column = _missing_column_name(exc)
+            if column and column not in _answers_missing_columns:
+                _answers_missing_columns.add(column)
+                continue
             supabase.table("responses").delete().eq("id", response_id).execute()
             raise
 
@@ -411,31 +432,26 @@ def get_survey_results(survey: dict) -> dict:
 
     answers_by_question: dict = {}
     if response_ids:
-        global _answers_has_is_voice
-        include_voice = _answers_has_is_voice is not False
-        columns = (
-            "question_id, answer_text, is_voice"
-            if include_voice
-            else "question_id, answer_text"
-        )
-        try:
-            answers_result = (
-                supabase.table("answers")
-                .select(columns)
-                .in_("response_id", response_ids)
-                .execute()
+        # Reintentamos descartando columnas opcionales aun no migradas
+        # (US-17 is_voice / US-18 language).
+        answers_result = None
+        while True:
+            columns = ", ".join(
+                ("question_id", "answer_text", *_present_optional_columns())
             )
-        except Exception as exc:
-            if include_voice and _missing_column(exc, "is_voice"):
-                # La migracion de US-17 todavia no se aplico en esta base.
-                _answers_has_is_voice = False
+            try:
                 answers_result = (
                     supabase.table("answers")
-                    .select("question_id, answer_text")
+                    .select(columns)
                     .in_("response_id", response_ids)
                     .execute()
                 )
-            else:
+                break
+            except Exception as exc:
+                column = _missing_column_name(exc)
+                if column and column not in _answers_missing_columns:
+                    _answers_missing_columns.add(column)
+                    continue
                 raise
 
         for answer in (answers_result.data or []):
@@ -443,6 +459,7 @@ def get_survey_results(survey: dict) -> dict:
                 {
                     "text": answer["answer_text"],
                     "is_voice": bool(answer.get("is_voice")),
+                    "language": answer.get("language"),
                 }
             )
 
