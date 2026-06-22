@@ -1,11 +1,14 @@
 from pydantic import BaseModel, field_validator
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 
 
 class AnswerCreate(BaseModel):
     question_id: int
     answer_text: str
+    is_voice: bool = False
+    # US-18 — Idioma detectado por Whisper (ISO 639-1), si la respuesta fue por voz.
+    language: Optional[str] = None
 
     @field_validator("answer_text")
     @classmethod
@@ -32,6 +35,8 @@ class AnswerResult(BaseModel):
     response_id: int
     question_id: int
     answer_text: str
+    is_voice: bool = False
+    language: Optional[str] = None
 
 
 class ResponseResult(BaseModel):

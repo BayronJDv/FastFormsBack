@@ -10,6 +10,15 @@ class Settings:
     def __init__(self):
         self.URL: str = os.getenv("SUPABASE_URL", "")
         self.KEY: str = os.getenv("SUPABASE_KEY", "")
+        self.OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+        # Proveedor de transcripcion: "local" (openai/whisper, sin costo ni
+        # cuota) u "openai" (API hospedada). Por defecto usamos el local.
+        self.WHISPER_PROVIDER: str = os.getenv("WHISPER_PROVIDER", "local").lower()
+        # Modelo de la API hospedada (provider="openai").
+        self.WHISPER_MODEL: str = os.getenv("WHISPER_MODEL", "whisper-1")
+        # Modelo del paquete local openai-whisper (tiny/base/small/medium/large/turbo).
+        self.WHISPER_LOCAL_MODEL: str = os.getenv("WHISPER_LOCAL_MODEL", "base")
+        self.WHISPER_DEFAULT_LANGUAGE: str = os.getenv("WHISPER_DEFAULT_LANGUAGE", "es")
 
         if not self.URL or not self.KEY:
             raise RuntimeError(
