@@ -11,14 +11,6 @@ class OptionResult(BaseModel):
     percentage: float
 
 
-class TextAnswer(BaseModel):
-    """US-17 / US-18 — Texto de respuesta abierta + origen y idioma."""
-
-    text: str
-    is_voice: bool = False
-    language: Optional[str] = None
-
-
 class QuestionResult(BaseModel):
     question_id: int
     content: str
@@ -26,10 +18,8 @@ class QuestionResult(BaseModel):
     total_answers: int
     # Para preguntas de opción (multiple_choice / yes_no)
     options: Optional[List[OptionResult]] = None
-    # Para preguntas abiertas (open) — lista plana, retrocompatible.
+    # Para preguntas abiertas (open) — lista plana de textos.
     texts: Optional[List[str]] = None
-    # US-17 — Variante enriquecida con flag de voz, usada por el dashboard.
-    text_entries: Optional[List[TextAnswer]] = None
 
 
 class SurveyResults(BaseModel):

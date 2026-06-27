@@ -10,15 +10,12 @@ python-dotenv>=1.0.1
 pydantic[email]>=2.9.0
 python-multipart>=0.0.12
 
-# Voice (US-12 — Whisper STT)
-# Proveedor local (por defecto): openai/whisper, corre el modelo en la propia
-# máquina. Arrastra torch.
-openai-whisper>=20231117
-# Trae un binario de ffmpeg empaquetado como dependencia Python; evita tener
-# que instalar ffmpeg en el sistema (útil sobre todo en Windows).
-imageio-ffmpeg>=0.4.9
-# Proveedor opcional: API hospedada de OpenAI (WHISPER_PROVIDER=openai).
-openai>=1.40.0
+# Voice (US-12 / US-15) — STT con Groq (Whisper hospedado, latencia baja).
+# Sin dependencias nativas: el SDK hace una llamada HTTPS y devuelve el texto.
+groq>=1.5.0
+
+# AI generation (US-13) — SDK oficial de Google Gemini.
+google-genai>=1.0.0
 
 # Testing
 pytest>=8.0.0

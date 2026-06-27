@@ -1,5 +1,29 @@
 # Changelog
 
+## Sprint 7 — Generación de encuestas con IA
+
+### US-13 · Creación: Generador de encuestas con IA (Gemini)
+- Nuevo endpoint `POST /api/v1/surveys/generate` (protegido con JWT) que
+  recibe `{prompt, num_questions, language}` y devuelve un JSON con la
+  misma forma que `SurveyCreate` (`{title, questions: [...]}`) para que el
+  frontend hidrate el formulario de creación con un único `setState(...)`.
+  **No persiste nada en Supabase**: el usuario revisa/edita y decide si
+  crear (`POST /surveys`) o guardar como borrador (`POST /surveys/draft`).
+- Prompt maestro versionado en `promptbeta.txt` (cargado en cada request,
+  con caché en memoria). Pensado para iterar sin tocar código.
+- SDK oficial `google-genai` con `response_mime_type="application/json"` y
+  `response_schema` (OpenAPI 3.0 subset) para forzar JSON estructurado.
+- Validación final con Pydantic (`GenerateSurveyResponse`). Tipos de
+  pregunta restringidos a los 3 existentes (`open`, `multiple_choice`,
+  `yes_no`).
+- Excepciones tipadas → HTTP: `GeminiConfigError` → 503, `GeminiProviderError`
+  / `GeminiParseError` → 502. Mensaje específico para 429 quota.
+- Nueva variable de entorno `GEMINI_API_KEY` (renombrada desde
+  `GENAI_API_KEY`); `GEMINI_MODEL` opcional (default `gemini-2.0-flash`).
+- Plan de implementación en `docs/promptus13.md`.
+- Tests `tests/unit/test_generate_survey.py`: happy path, validaciones 400,
+  falta de API key (503), respuesta no parseable (502), sin JWT (401).
+
 ## Sprint 6 — Voz multilingüe y acceso por voz
 
 ### US-18 · Internacionalización: Encuestas Multilingües por Voz

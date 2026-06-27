@@ -10,15 +10,19 @@ class Settings:
     def __init__(self):
         self.URL: str = os.getenv("SUPABASE_URL", "")
         self.KEY: str = os.getenv("SUPABASE_KEY", "")
-        self.OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
-        # Proveedor de transcripcion: "local" (openai/whisper, sin costo ni
-        # cuota) u "openai" (API hospedada). Por defecto usamos el local.
-        self.WHISPER_PROVIDER: str = os.getenv("WHISPER_PROVIDER", "local").lower()
-        # Modelo de la API hospedada (provider="openai").
-        self.WHISPER_MODEL: str = os.getenv("WHISPER_MODEL", "whisper-1")
-        # Modelo del paquete local openai-whisper (tiny/base/small/medium/large/turbo).
-        self.WHISPER_LOCAL_MODEL: str = os.getenv("WHISPER_LOCAL_MODEL", "base")
-        self.WHISPER_DEFAULT_LANGUAGE: str = os.getenv("WHISPER_DEFAULT_LANGUAGE", "es")
+        # US-12 / US-15 — Proveedor de transcripcion: Groq.
+        # Necesita GROQ_API_KEY; sin ella, /transcribe devuelve 503.
+        # Modelo Whisper servido por Groq (`whisper-large-v3` o
+        # `whisper-large-v3-turbo` por defecto).
+        self.GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+        self.GROQ_TRANSCRIBE_MODEL: str = os.getenv(
+            "GROQ_TRANSCRIBE_MODEL", "whisper-large-v3-turbo"
+        )
+        # US-13 — Generador de encuestas con Gemini. Si la key no está
+        # configurada, el endpoint /surveys/generate devolverá 503; el resto
+        # de la API sigue funcionando.
+        self.GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+        self.GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
         if not self.URL or not self.KEY:
             raise RuntimeError(
