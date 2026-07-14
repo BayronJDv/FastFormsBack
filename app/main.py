@@ -15,6 +15,7 @@ from api.routes import (
     transcribe,
     surveys_generate,
     responses_voice,
+    vision,
 )
 
 
@@ -45,6 +46,7 @@ app.add_middleware(
 # para que FastAPI no las confunda con ids dinamicos.
 # ---------------------------------------------------------------
 app.include_router(surveys_generate.router, prefix="/api/v1")
+app.include_router(vision.router, prefix="/api/v1")
 app.include_router(surveys.router, prefix="/api/v1")
 app.include_router(questions.router, prefix="/api/v1")
 app.include_router(responses_voice.router, prefix="/api/v1")
