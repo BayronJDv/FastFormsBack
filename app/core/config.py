@@ -22,7 +22,7 @@ class Settings:
         # configurada, el endpoint /surveys/generate devolverá 503; el resto
         # de la API sigue funcionando.
         self.GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-        self.GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        self.GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
 
         if not self.URL or not self.KEY:
             raise RuntimeError(
